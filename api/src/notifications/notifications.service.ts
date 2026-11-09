@@ -6,9 +6,9 @@ import { BotService } from '../bot/bot.service';
 import { APP_CONFIG } from '../config/config.module';
 import { AppConfig } from '../config/config.schema';
 import { PrismaService } from '../prisma/prisma.service';
-import { MOCK_WALLET_ID } from '../syrve/mock-syrve.client';
+import { isBalanceChange, programWalletId } from '../loyalty/balance-change';
 import { describeError } from '../syrve/syrve-api.error';
-import { SYRVE_CLIENT, SyrveClient, SyrveTransaction } from '../syrve/syrve-client.interface';
+import { SYRVE_CLIENT, SyrveClient } from '../syrve/syrve-client.interface';
 import { notificationText } from './notification-text';
 import { latestRevision } from './revision';
 
@@ -54,7 +54,7 @@ export class NotificationsService implements OnApplicationBootstrap, OnModuleDes
     @InjectQueue(POLL_QUEUE) private readonly pollQueue: Queue,
     @InjectQueue(NOTIFY_QUEUE) private readonly notifyQueue: Queue,
   ) {
-    this.walletId = (cfg.SYRVE_WALLET_ID ?? MOCK_WALLET_ID).toLowerCase();
+    this.walletId = programWalletId(cfg);
   }
 
   async onApplicationBootstrap() {
@@ -126,7 +126,7 @@ export class NotificationsService implements OnApplicationBootstrap, OnModuleDes
         break;
       }
       const rows = p.transactions
-        .filter((t) => this.isBalanceChange(t))
+        .filter((t) => isBalanceChange(t, this.walletId))
         .map((t) => ({ syrveTransactionId: t.id, guestId: guest.id, sum: t.sum, balanceAfter: t.balanceAfter }));
       // Строки outbox и курсор — атомарно: курсор не уйдёт вперёд без записанных уведомлений.
       await this.prisma.$transaction([
@@ -222,11 +222,6 @@ export class NotificationsService implements OnApplicationBootstrap, OnModuleDes
 
   private async setStatus(transactionId: string, status: NotificationStatus, lastError: string) {
     await this.prisma.notification.update({ where: { syrveTransactionId: transactionId }, data: { status, lastError } });
-  }
-
-  // Изменение баланса — только наш кошелёк и ненулевая сумма (служебные записи: sum 0, walletId null).
-  private isBalanceChange(tx: SyrveTransaction): boolean {
-    return tx.walletId !== null && tx.walletId.toLowerCase() === this.walletId && tx.sum !== 0;
   }
 }
 

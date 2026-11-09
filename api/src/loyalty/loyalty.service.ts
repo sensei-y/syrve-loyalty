@@ -1,9 +1,21 @@
 import { ConflictException, Inject, Injectable, Logger } from '@nestjs/common';
 import { Admin, Operation, OpStatus, OpType } from '@prisma/client';
 import { SessionAdmin } from '../auth/auth.decorators';
+import { APP_CONFIG } from '../config/config.module';
+import { AppConfig } from '../config/config.schema';
 import { PrismaService } from '../prisma/prisma.service';
 import { describeError, SyrveApiError } from '../syrve/syrve-api.error';
-import { SYRVE_CLIENT, SyrveClient } from '../syrve/syrve-client.interface';
+import { SYRVE_CLIENT, SyrveClient, SyrveTransaction } from '../syrve/syrve-client.interface';
+import { isBalanceChange, programWalletId } from './balance-change';
+
+// Строка истории Д1: изменение баланса нашего кошелька в Syrve.
+export interface BalanceChangeView {
+  id: string;
+  createdAt: string; // ISO, UTC
+  sum: number; // со знаком: + начисление, − списание
+  balanceAfter: number | null;
+  comment: string | null;
+}
 
 export interface OperationInput {
   syrveCustomerId: string;
@@ -31,6 +43,9 @@ export interface OperationView {
 type OperationWithAdmin = Operation & { admin: Pick<Admin, 'login'> };
 const withAdmin = { admin: { select: { login: true } } } as const;
 const JOURNAL_LIMIT = 100;
+const MAX_HISTORY_PAGES = 200; // 10 000 транзакций гостя — дальше история медленная, отдаём ошибку
+export const BOT_HISTORY_LIMIT = 10;
+export const PANEL_HISTORY_LIMIT = 20;
 
 // Ручное начисление / списание из панели. Порядок (CLAUDE.md):
 // 1) Operation PENDING с уникальным idempotencyKey — до Syrve; конфликт ключа = повтор, Syrve не вызываем;
@@ -43,10 +58,42 @@ export class LoyaltyService {
   // одновременно пройдут проверку баланса. Достаточно памяти: api — один процесс.
   private readonly queues = new Map<string, Promise<unknown>>();
 
+  private readonly walletId: string;
+
   constructor(
     private readonly prisma: PrismaService,
     @Inject(SYRVE_CLIENT) private readonly syrve: SyrveClient,
-  ) {}
+    @Inject(APP_CONFIG) cfg: AppConfig,
+  ) {
+    this.walletId = programWalletId(cfg);
+  }
+
+  // Д1: последние `limit` изменений баланса гостя в Syrve (любой источник: панель, касса, кабинет), новые сверху.
+  // У by_revision нет обратного порядка — проходим историю гостя целиком страницами и держим последние `limit`.
+  async history(syrveCustomerId: string, limit: number): Promise<BalanceChangeView[]> {
+    const id = syrveCustomerId.toLowerCase();
+    const last: SyrveTransaction[] = [];
+    let revision = 0n;
+    for (let page = 0; ; page++) {
+      if (page >= MAX_HISTORY_PAGES) throw new Error(`Історія гостя ${id} довша за ${MAX_HISTORY_PAGES} сторінок`);
+      const p = await this.syrve.transactions(id, revision);
+      for (const t of p.transactions) {
+        if (!isBalanceChange(t, this.walletId)) continue;
+        last.push(t);
+        if (last.length > limit) last.shift();
+      }
+      if (!p.hasMore) break;
+      if (p.lastRevision <= revision) throw new Error(`Історія гостя ${id}: ревізія не зростає`);
+      revision = p.lastRevision;
+    }
+    return last.reverse().map((t) => ({
+      id: t.id,
+      createdAt: t.createdAt,
+      sum: t.sum,
+      balanceAfter: t.balanceAfter,
+      comment: t.comment,
+    }));
+  }
 
   async run(raw: OperationInput): Promise<OperationView> {
     // id — ключ очереди и журнала: один гость = одна строка, в каком бы регистре ни пришёл id.

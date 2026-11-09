@@ -1,6 +1,7 @@
 import { ConflictException, Logger } from '@nestjs/common';
 import { OpStatus, OpType } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
+import { AppConfig } from '../config/config.schema';
 import { PrismaService } from '../prisma/prisma.service';
 import { MockSyrveClient } from '../syrve/mock-syrve.client';
 import { SyrveApiError } from '../syrve/syrve-api.error';
@@ -55,7 +56,7 @@ async function setup(startBalance = 0) {
   await syrve.addToProgram(id);
   if (startBalance) await syrve.topup(id, startBalance);
   const { rows, prisma } = fakePrisma();
-  const service = new LoyaltyService(prisma, syrve);
+  const service = new LoyaltyService(prisma, syrve, { SYRVE_WALLET_ID: undefined } as AppConfig);
   const spy = { topup: jest.spyOn(syrve, 'topup'), chargeoff: jest.spyOn(syrve, 'chargeoff') };
   const input = (over: Partial<OperationInput> = {}): OperationInput => ({
     syrveCustomerId: id,
@@ -238,5 +239,61 @@ describe('LoyaltyService', () => {
       ['Друга', OpStatus.FAILED, 'admin'],
       ['Перша', OpStatus.SUCCESS, 'admin'],
     ]);
+  });
+});
+
+describe('LoyaltyService.history (Д1)', () => {
+  afterEach(() => jest.restoreAllMocks());
+
+  it('новий гість без операцій → порожньо (службова SetGuestCategory не рахується)', async () => {
+    const { service, id } = await setup();
+    await expect(service.history(id, 10)).resolves.toEqual([]);
+  });
+
+  it('нові зверху, з балансом після і коментарем', async () => {
+    const { syrve, service, id } = await setup();
+    await syrve.topup(id, 10, 'Перша');
+    await syrve.chargeoff(id, 3, 'Друга');
+
+    const history = await service.history(id.toUpperCase(), 10);
+
+    expect(history.map((h) => [h.sum, h.balanceAfter, h.comment])).toEqual([
+      [-3, 7, 'Друга'],
+      [10, 10, 'Перша'],
+    ]);
+  });
+
+  it('фільтр як в О6: чужий гаманець і нульова сума не потрапляють', async () => {
+    const { syrve, service, id } = await setup();
+    jest.spyOn(syrve, 'transactions').mockResolvedValueOnce({
+      transactions: [
+        { id: 'svc', revision: 1n, type: 'SetGuestCategory', sum: 0, walletId: null, balanceAfter: null, comment: null, createdAt: '' },
+        { id: 'zero', revision: 2n, type: 'X', sum: 0, walletId: 'mock-wallet', balanceAfter: 0, comment: null, createdAt: '' },
+        { id: 'other', revision: 3n, type: 'X', sum: 5, walletId: 'other-wallet', balanceAfter: 5, comment: null, createdAt: '' },
+        { id: 'ours', revision: 4n, type: 'X', sum: 7, walletId: 'MOCK-WALLET', balanceAfter: 7, comment: null, createdAt: '' },
+      ],
+      lastRevision: 4n,
+      hasMore: false,
+    });
+
+    expect((await service.history(id, 10)).map((h) => h.id)).toEqual(['ours']);
+  });
+
+  it('ліміт через сторінки: 120 операцій → рівно 10 найновіших', async () => {
+    const { syrve, service, id } = await setup();
+    for (let i = 1; i <= 120; i++) await syrve.topup(id, i);
+    const spy = jest.spyOn(syrve, 'transactions');
+
+    const history = await service.history(id, 10);
+
+    expect(history.map((h) => h.sum)).toEqual([120, 119, 118, 117, 116, 115, 114, 113, 112, 111]);
+    expect(spy).toHaveBeenCalledTimes(3); // SetGuestCategory + 120 = 121 запис: 50 + 50 + 21
+  });
+
+  it('є ще сторінки, а ревізія не зростає → помилка, а не неповна історія', async () => {
+    const { syrve, service, id } = await setup();
+    jest.spyOn(syrve, 'transactions').mockResolvedValue({ transactions: [], lastRevision: 0n, hasMore: true });
+
+    await expect(service.history(id, 10)).rejects.toThrow('не зростає');
   });
 });
