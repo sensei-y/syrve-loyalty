@@ -7,7 +7,7 @@ import { hashPassword, verifyPassword } from './password';
 
 // Ограничение подбора пароля (и CPU DoS через дорогой scrypt): счётчик неудач проверяется ДО scrypt.
 // По паре IP+логин — 10 неудач за 15 минут; по логину с любых IP — 30 (IP можно подделать,
-// если ходить в api мимо nginx). Память процесса: api — один процесс.
+// если ходить в api мимо nginx). Только для существующих логинов. Память процесса: api — один процесс.
 const WINDOW_MS = 15 * 60 * 1000;
 const LIMITS = { ipLogin: 10, login: 30 };
 
@@ -41,7 +41,10 @@ export class AuthService implements OnModuleInit {
     }
 
     const admin = await this.prisma.admin.findUnique({ where: { login } });
-    if (!admin || !(await verifyPassword(password, admin.passwordHash))) {
+    // Несуществующий логин: подбирать нечего, scrypt не запускается — счётчик не ведём.
+    // Иначе выдуманные логины и поддельный X-Real-IP раздували бы таблицу неудач.
+    if (!admin) return null;
+    if (!(await verifyPassword(password, admin.passwordHash))) {
       keys.forEach((k) => this.recordFailure(k));
       return null;
     }
@@ -54,13 +57,14 @@ export class AuthService implements OnModuleInit {
     return !!f && Date.now() - f.since < WINDOW_MS && f.count >= limit;
   }
 
+  // Размер таблицы ограничен сам: записи только для существующих логинов, и после 30 неудач
+  // по логину он заблокирован — новые «IP + логин» не появляются. ≤ 31 запись на админа за окно,
+  // поэтому чистить устаревшие можно на каждой записи.
   private recordFailure(key: string) {
     const now = Date.now();
+    for (const [k, v] of this.failures) if (now - v.since >= WINDOW_MS) this.failures.delete(k);
     const f = this.failures.get(key);
-    if (!f || now - f.since >= WINDOW_MS) this.failures.set(key, { count: 1, since: now });
-    else f.count++;
-    if (this.failures.size > 10_000) {
-      for (const [k, v] of this.failures) if (now - v.since >= WINDOW_MS) this.failures.delete(k);
-    }
+    if (f) f.count++;
+    else this.failures.set(key, { count: 1, since: now });
   }
 }

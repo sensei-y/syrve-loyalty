@@ -88,7 +88,11 @@ describe('AuthService: обмеження спроб входу', () => {
   async function setup() {
     const passwordHash = await hashPassword('right-password');
     const prisma = {
-      admin: { findUnique: jest.fn(async () => ({ id: 'a1', login: 'admin', passwordHash })) },
+      admin: {
+        findUnique: jest.fn(async ({ where }: { where: { login: string } }) =>
+          where.login === 'admin' ? { id: 'a1', login: 'admin', passwordHash } : null,
+        ),
+      },
     } as unknown as PrismaService;
     const cfg = { ADMIN_LOGIN: 'admin', ADMIN_PASSWORD: 'right-password' } as AppConfig;
     const service = new AuthService(cfg, prisma, new JwtService({ secret: 's'.repeat(32) }));
@@ -120,6 +124,30 @@ describe('AuthService: обмеження спроб входу', () => {
     for (let i = 0; i < 30; i++) await service.login('admin', 'wrong', `10.0.0.${i}`);
 
     await expect(service.login('admin', 'right-password', '10.0.1.1')).rejects.toMatchObject({ status: 429 });
+  });
+
+  const failuresSize = (service: AuthService) =>
+    (service as unknown as { failures: Map<string, unknown> }).failures.size;
+
+  it('вигадані логіни з підробленими IP не роздувають таблицю невдач', async () => {
+    const { service, verify } = await setup();
+    for (let i = 0; i < 1000; i++) {
+      await expect(service.login(`user-${i}`, 'wrong', `10.${i >> 8}.${i & 255}.1`)).resolves.toBeNull();
+    }
+
+    expect(failuresSize(service)).toBe(0);
+    expect(verify).not.toHaveBeenCalled(); // scrypt для неіснуючого логіна не запускається
+  });
+
+  it('1000 невдач під admin з різних IP → не більше 31 запису, далі 429', async () => {
+    const { service } = await setup();
+    let blocked = 0;
+    for (let i = 0; i < 1000; i++) {
+      await service.login('admin', 'wrong', `10.${i >> 8}.${i & 255}.1`).catch(() => blocked++);
+    }
+
+    expect(failuresSize(service)).toBeLessThanOrEqual(31);
+    expect(blocked).toBe(1000 - 30);
   });
 
   it('успішний вхід скидає лічильник', async () => {
