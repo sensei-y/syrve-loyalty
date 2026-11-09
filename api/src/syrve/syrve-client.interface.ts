@@ -31,9 +31,12 @@ export interface SyrveTransaction {
   createdAt: string;
 }
 
+// by_revision (проверено на живом API): возвращает транзакции с revision > fromRevision;
+// lastRevision — ревизия последней транзакции страницы, у пустой страницы — запрошенная.
 export interface SyrveTransactionPage {
   transactions: SyrveTransaction[];
   lastRevision: bigint;
+  hasMore: boolean; // страница заполнена целиком — за ней могут быть ещё
 }
 
 export interface SyrveConnectionInfo {
@@ -52,5 +55,6 @@ export interface SyrveClient {
   addCard(customerId: string, cardNumber: string): Promise<void>;
   topup(customerId: string, sum: number, comment: string): Promise<void>;
   chargeoff(customerId: string, sum: number, comment: string): Promise<void>;
+  // Одна страница истории гостя после fromRevision (все кошельки, включая служебные записи).
   transactions(customerId: string, fromRevision: bigint): Promise<SyrveTransactionPage>;
 }

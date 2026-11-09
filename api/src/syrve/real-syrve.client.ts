@@ -24,6 +24,23 @@ interface RawResponse {
   body: unknown; // null — тело не JSON
 }
 
+export const TRANSACTIONS_PAGE_SIZE = 50;
+
+interface RawTransactionPage {
+  transactions?: {
+    id: string;
+    revision: number;
+    type?: number;
+    typeName?: string;
+    sum?: number;
+    walletId?: string | null;
+    balanceAfter?: number | null;
+    comment?: string | null;
+    whenCreated?: string;
+  }[];
+  lastRevision?: number;
+}
+
 // Поля customer/info, которые мы используем (полный ответ — в docs/syrve-api-notes.md).
 interface RawCustomer {
   id: string;
@@ -141,11 +158,30 @@ export class RealSyrveClient implements SyrveClient {
     return { organizationId: this.organizationId, customerId, walletId: this.walletId, sum, comment };
   }
 
-  private notImplemented(): never {
-    throw new Error('RealSyrveClient: ще не реалізовано (О6)');
+  async transactions(customerId: string, fromRevision: bigint): Promise<SyrveTransactionPage> {
+    const page = await this.post<RawTransactionPage>('/api/1/loyalty/syrve/customer/transactions/by_revision', {
+      organizationId: this.organizationId,
+      customerId,
+      // ~5·10⁹ сейчас: JSON number точен до 2^53, в ответе тоже число.
+      revision: Number(fromRevision),
+      pageSize: TRANSACTIONS_PAGE_SIZE,
+    });
+    const transactions = (page.transactions ?? []).map((t) => ({
+      id: t.id,
+      revision: BigInt(t.revision),
+      type: t.typeName ?? String(t.type ?? ''),
+      sum: t.sum ?? 0,
+      walletId: t.walletId ?? null,
+      balanceAfter: t.balanceAfter ?? null,
+      comment: t.comment ?? null,
+      createdAt: t.whenCreated ?? '',
+    }));
+    return {
+      transactions,
+      lastRevision: BigInt(page.lastRevision ?? fromRevision),
+      hasMore: transactions.length >= TRANSACTIONS_PAGE_SIZE,
+    };
   }
-
-  transactions(): Promise<SyrveTransactionPage> { return this.notImplemented(); }
 
   private toCustomer(raw: RawCustomer): SyrveCustomer {
     const wallet = (raw.walletBalances ?? []).find((w) => sameId(w.id, this.walletId));

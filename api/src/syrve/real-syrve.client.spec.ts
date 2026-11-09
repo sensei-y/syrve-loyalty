@@ -359,3 +359,57 @@ describe('RealSyrveClient: гаманець', () => {
     });
   });
 });
+
+describe('RealSyrveClient: транзакції', () => {
+  afterEach(() => jest.restoreAllMocks());
+  const PATH = '/api/1/loyalty/syrve/customer/transactions/by_revision';
+
+  it('шле revision і pageSize, розбирає відповідь (BigInt, typeName, null у службових)', async () => {
+    const { spy } = mockSyrve({
+      [PATH]: () =>
+        reply(200, {
+          transactions: [
+            { id: 't1', type: 21, typeName: 'SetGuestCategory', sum: 0.0, walletId: null, balanceAfter: null,
+              comment: 'Кэшбек 1%', revision: 5207794689, whenCreated: '2026-11-09T08:48:37.285Z' },
+            { id: 't2', type: 40, typeName: 'WithdrawWalletFromApi', sum: -500.0, walletId: WALLET, balanceBefore: 0,
+              balanceAfter: -500.0, comment: 'x', revision: 5207802399, whenCreated: '2026-11-09T08:50:58.833Z' },
+          ],
+          lastRevision: 5207802399,
+          lastTransactionId: 't2',
+          pageSize: 50,
+        }),
+    });
+
+    const page = await new RealSyrveClient(cfg).transactions('cust-1', 5207000000n);
+
+    const call = spy.mock.calls.find(([url]) => String(url).endsWith(PATH))!;
+    expect(JSON.parse(String(call[1]!.body))).toEqual({
+      organizationId: ORG, customerId: 'cust-1', revision: 5207000000, pageSize: 50,
+    });
+    expect(page).toEqual({
+      transactions: [
+        { id: 't1', revision: 5207794689n, type: 'SetGuestCategory', sum: 0, walletId: null, balanceAfter: null,
+          comment: 'Кэшбек 1%', createdAt: '2026-11-09T08:48:37.285Z' },
+        { id: 't2', revision: 5207802399n, type: 'WithdrawWalletFromApi', sum: -500, walletId: WALLET, balanceAfter: -500,
+          comment: 'x', createdAt: '2026-11-09T08:50:58.833Z' },
+      ],
+      lastRevision: 5207802399n,
+      hasMore: false,
+    });
+  });
+
+  it('повна сторінка → hasMore; порожня → lastRevision = запитаний', async () => {
+    const full = Array.from({ length: 50 }, (_, i) => ({ id: `t${i}`, typeName: 'X', sum: 1, walletId: WALLET, revision: 100 + i }));
+    const { spy } = mockSyrve({
+      [PATH]: (_a, init) =>
+        JSON.parse(String(init.body)).revision === 0
+          ? reply(200, { transactions: full, lastRevision: 149, pageSize: 50 })
+          : reply(200, { transactions: [], lastRevision: 149, pageSize: 50 }),
+    });
+    const client = new RealSyrveClient(cfg);
+
+    await expect(client.transactions('c', 0n)).resolves.toMatchObject({ hasMore: true, lastRevision: 149n });
+    await expect(client.transactions('c', 149n)).resolves.toEqual({ transactions: [], lastRevision: 149n, hasMore: false });
+    expect(spy).toHaveBeenCalled();
+  });
+});

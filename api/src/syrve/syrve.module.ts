@@ -12,7 +12,7 @@ import { SYRVE_CLIENT, SyrveClient } from './syrve-client.interface';
     {
       provide: SYRVE_CLIENT,
       useFactory: (cfg: AppConfig): SyrveClient =>
-        cfg.SYRVE_MODE === 'real' ? new RealSyrveClient(cfg) : new MockSyrveClient(),
+        cfg.SYRVE_MODE === 'real' ? new RealSyrveClient(cfg) : new MockSyrveClient(cfg.SYRVE_WALLET_ID),
       inject: [APP_CONFIG],
     },
   ],
