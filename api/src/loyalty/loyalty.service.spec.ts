@@ -181,6 +181,27 @@ describe('LoyaltyService', () => {
     await expect(balance()).resolves.toBe(3);
   });
 
+  it('паралельні списання з id у різному регістрі — одна черга, баланс не в мінус', async () => {
+    const { service, spy, input, balance, id } = await setup(10);
+
+    const [a, b] = await Promise.all([
+      service.run(input({ type: OpType.CHARGEOFF, amount: 7, syrveCustomerId: id.toUpperCase() })),
+      service.run(input({ type: OpType.CHARGEOFF, amount: 7, syrveCustomerId: id.toLowerCase() })),
+    ]);
+
+    expect([a.status, b.status].sort()).toEqual([OpStatus.FAILED, OpStatus.SUCCESS]);
+    expect(spy.chargeoff).toHaveBeenCalledTimes(1);
+    await expect(balance()).resolves.toBe(3);
+  });
+
+  it('журнал за id у верхньому регістрі показує ті самі операції', async () => {
+    const { service, input, id } = await setup();
+    await service.run(input({ syrveCustomerId: id.toUpperCase() }));
+
+    expect(await service.journal(id.toUpperCase())).toHaveLength(1);
+    expect(await service.journal(id)).toHaveLength(1);
+  });
+
   it('у гостя немає гаманця програми → списання FAILED без виклику Syrve', async () => {
     const { syrve, service, spy, input, id } = await setup(10);
     jest.spyOn(syrve, 'findCustomer').mockResolvedValueOnce({ id, name: 'Олена', phone: '', cards: [], balance: null });

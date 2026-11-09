@@ -29,7 +29,7 @@ export class MockSyrveClient implements SyrveClient {
 
   async findCustomer(q: SyrveCustomerQuery): Promise<SyrveCustomer | null> {
     const found = [...this.customers.values()].find((c) =>
-      'phone' in q ? c.phone === q.phone : 'cardNumber' in q ? c.cards.includes(q.cardNumber) : c.id === q.id,
+      'phone' in q ? c.phone === q.phone : 'cardNumber' in q ? c.cards.includes(q.cardNumber) : c.id === q.id.toLowerCase(),
     );
     return found ? toCustomer(found) : null;
   }
@@ -54,7 +54,7 @@ export class MockSyrveClient implements SyrveClient {
   }
 
   private get(customerId: string): MockCustomer {
-    const c = this.customers.get(customerId);
+    const c = this.customers.get(customerId.toLowerCase()); // как живой Syrve: id в любом регистре
     if (!c) throw new Error(`MockSyrveClient: гостя ${customerId} немає`);
     return c;
   }

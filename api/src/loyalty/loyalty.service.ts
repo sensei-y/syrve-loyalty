@@ -48,7 +48,9 @@ export class LoyaltyService {
     @Inject(SYRVE_CLIENT) private readonly syrve: SyrveClient,
   ) {}
 
-  async run(input: OperationInput): Promise<OperationView> {
+  async run(raw: OperationInput): Promise<OperationView> {
+    // id — ключ очереди и журнала: один гость = одна строка, в каком бы регистре ни пришёл id.
+    const input = { ...raw, syrveCustomerId: raw.syrveCustomerId.toLowerCase() };
     let op: OperationWithAdmin;
     try {
       op = await this.prisma.operation.create({
@@ -88,7 +90,7 @@ export class LoyaltyService {
 
   async journal(syrveCustomerId: string): Promise<OperationView[]> {
     const rows = await this.prisma.operation.findMany({
-      where: { syrveCustomerId },
+      where: { syrveCustomerId: syrveCustomerId.toLowerCase() },
       orderBy: { createdAt: 'desc' },
       take: JOURNAL_LIMIT,
       include: withAdmin,
