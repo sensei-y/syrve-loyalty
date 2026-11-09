@@ -1,3 +1,11 @@
+# Общие настройки образа api: один код для migrate, api и worker — отличается только команда.
+x-app: &app
+  build: ./api
+  env_file: .env
+  environment:
+    DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-syrve_loyalty}?schema=public
+    REDIS_HOST: redis
+
 services:
   postgres:
     image: postgres:16-alpine
@@ -23,31 +31,33 @@ services:
       interval: 5s
       retries: 10
 
-  # HTTP для админки. Миграции применяются перед стартом.
+  # Миграции — отдельным шагом. api и worker стартуют только после успешного завершения:
+  # иначе worker с новым кодом успевает поработать со старой схемой (так было в О6).
+  migrate:
+    <<: *app
+    command: npx prisma migrate deploy
+    depends_on:
+      postgres: { condition: service_healthy }
+    restart: "no"
+
+  # HTTP для админки.
   api:
-    build: ./api
-    env_file: .env
-    environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-syrve_loyalty}?schema=public
-      REDIS_HOST: redis
-    command: sh -c "npx prisma migrate deploy && node dist/main.js"
+    <<: *app
+    command: node dist/main.js
     ports:
       - "3000:3000"
     depends_on:
-      postgres: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
       redis: { condition: service_healthy }
     restart: unless-stopped
 
   # Бот + очереди. Тот же образ, другая точка входа.
   worker:
-    build: ./api
-    env_file: .env
-    environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-syrve_loyalty}?schema=public
-      REDIS_HOST: redis
+    <<: *app
     command: node dist/worker.js
     depends_on:
-      api: { condition: service_started }
+      migrate: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
     restart: unless-stopped
 
   # nginx: статика React + прокси /api → api:3000
