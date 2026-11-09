@@ -1,6 +1,7 @@
 import { Logger } from '@nestjs/common';
 import { Guest } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { FakeRedis } from '../syrve/fake-redis.test-helper';
 import { MockSyrveClient } from '../syrve/mock-syrve.client';
 import { GuestsService } from './guests.service';
 
@@ -27,17 +28,21 @@ function fakePrisma() {
   return { rows, prisma: { guest } as unknown as PrismaService };
 }
 
-// Прямой доступ к гостю внутри mock — чтобы смоделировать изменения «в кабинете Syrve».
-function mockRow(syrve: MockSyrveClient, id: string) {
-  return (syrve as unknown as { customers: Map<string, { cards: string[]; balance: number; inProgram: boolean }> })
-    .customers.get(id)!;
+// Прямое изменение Redis-подмены — имитация замены карт в кабинете Syrve.
+function replaceCards(redis: FakeRedis, id: string, cards: string[]) {
+  const entry = [...redis.sets.entries()].find(([key]) => key.includes(id) && key.endsWith(':cards'));
+  if (entry) entry[1].clear();
+  const set = entry?.[1] ?? new Set<string>();
+  cards.forEach((card) => set.add(card));
+  if (!entry) redis.sets.set(`syrve:mock:v1:customer:${id}:cards`, set);
 }
 
 const TG = 111n;
 const PHONE = '+380991234567';
 
 function setup() {
-  const syrve = new MockSyrveClient();
+  const redis = new FakeRedis();
+  const syrve = new MockSyrveClient(redis);
   const { rows, prisma } = fakePrisma();
   const service = new GuestsService(prisma, syrve);
   const spy = {
@@ -45,7 +50,7 @@ function setup() {
     addToProgram: jest.spyOn(syrve, 'addToProgram'),
     addCard: jest.spyOn(syrve, 'addCard'),
   };
-  return { syrve, rows, service, spy };
+  return { redis, syrve, rows, service, spy };
 }
 
 describe('GuestsService', () => {
@@ -155,7 +160,7 @@ describe('GuestsService', () => {
     const { syrve, service } = setup();
     const { id } = await syrve.upsertCustomer({ phone: PHONE, name: 'Стара назва' });
     await syrve.addCard(id, '5550001111');
-    mockRow(syrve, id).balance = 120; // стартовые бонусы появятся, когда гость попадёт в программу
+    await syrve.topup(id, 120); // стартовые бонусы появятся, когда гость попадёт в программу
 
     const result = await service.handleContact(TG, PHONE);
 
@@ -172,26 +177,26 @@ describe('GuestsService', () => {
   });
 
   it('картку замінили в Syrve → getCard показує нову й оновлює кеш', async () => {
-    const { syrve, service, rows } = setup();
+    const { redis, service, rows } = setup();
     await service.register(TG, PHONE, 'Олена');
-    mockRow(syrve, rows[0].syrveCustomerId).cards = ['7777777777'];
+    replaceCards(redis, rows[0].syrveCustomerId, ['7777777777']);
 
     await expect(service.getCard(TG)).resolves.toMatchObject({ cardNumber: '7777777777' });
     expect(rows[0].cardNumber).toBe('7777777777');
   });
 
   it('кілька карток, збережена серед них → getCard лишає збережену', async () => {
-    const { syrve, service, rows } = setup();
+    const { redis, service, rows } = setup();
     const { cardNumber } = await service.register(TG, PHONE, 'Олена');
-    mockRow(syrve, rows[0].syrveCustomerId).cards = ['8888888888', cardNumber];
+    replaceCards(redis, rows[0].syrveCustomerId, ['8888888888', cardNumber]);
 
     await expect(service.getCard(TG)).resolves.toMatchObject({ cardNumber });
   });
 
   it('карток у Syrve не лишилось → getCard падає з помилкою', async () => {
-    const { syrve, service, rows } = setup();
+    const { redis, service, rows } = setup();
     await service.register(TG, PHONE, 'Олена');
-    mockRow(syrve, rows[0].syrveCustomerId).cards = [];
+    replaceCards(redis, rows[0].syrveCustomerId, []);
 
     await expect(service.getCard(TG)).rejects.toThrow('немає картки');
   });

@@ -3,7 +3,8 @@ import { OpStatus, OpType } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import { AppConfig } from '../config/config.schema';
 import { PrismaService } from '../prisma/prisma.service';
-import { MockSyrveClient } from '../syrve/mock-syrve.client';
+import { FakeRedis } from '../syrve/fake-redis.test-helper';
+import { MOCK_WALLET_ID, MockSyrveClient } from '../syrve/mock-syrve.client';
 import { SyrveApiError } from '../syrve/syrve-api.error';
 import { LoyaltyService, OperationInput } from './loyalty.service';
 
@@ -51,7 +52,7 @@ function fakePrisma() {
 }
 
 async function setup(startBalance = 0) {
-  const syrve = new MockSyrveClient();
+  const syrve = new MockSyrveClient(new FakeRedis());
   const { id } = await syrve.upsertCustomer({ phone: '+380991234567', name: 'Олена' });
   await syrve.addToProgram(id);
   if (startBalance) await syrve.topup(id, startBalance);
@@ -268,9 +269,9 @@ describe('LoyaltyService.history (Д1)', () => {
     jest.spyOn(syrve, 'transactions').mockResolvedValueOnce({
       transactions: [
         { id: 'svc', revision: 1n, type: 'SetGuestCategory', sum: 0, walletId: null, balanceAfter: null, comment: null, createdAt: '' },
-        { id: 'zero', revision: 2n, type: 'X', sum: 0, walletId: 'mock-wallet', balanceAfter: 0, comment: null, createdAt: '' },
+        { id: 'zero', revision: 2n, type: 'X', sum: 0, walletId: MOCK_WALLET_ID, balanceAfter: 0, comment: null, createdAt: '' },
         { id: 'other', revision: 3n, type: 'X', sum: 5, walletId: 'other-wallet', balanceAfter: 5, comment: null, createdAt: '' },
-        { id: 'ours', revision: 4n, type: 'X', sum: 7, walletId: 'MOCK-WALLET', balanceAfter: 7, comment: null, createdAt: '' },
+        { id: 'ours', revision: 4n, type: 'X', sum: 7, walletId: MOCK_WALLET_ID.toUpperCase(), balanceAfter: 7, comment: null, createdAt: '' },
       ],
       lastRevision: 4n,
       hasMore: false,

@@ -5,13 +5,14 @@ import { HttpError } from 'grammy';
 import { BotService } from '../bot/bot.service';
 import { AppConfig } from '../config/config.schema';
 import { PrismaService } from '../prisma/prisma.service';
-import { MockSyrveClient } from '../syrve/mock-syrve.client';
+import { FakeRedis } from '../syrve/fake-redis.test-helper';
+import { MOCK_WALLET_ID, MockSyrveClient } from '../syrve/mock-syrve.client';
 import { SyrveTransactionPage } from '../syrve/syrve-client.interface';
 import { notificationText } from './notification-text';
 import { NotificationsService, NotifyJob } from './notifications.service';
 import { latestRevision } from './revision';
 
-const WALLET = '0eaa0000-29b3-b8cb-7be7-08de79e05361';
+const WALLET = MOCK_WALLET_ID;
 
 interface Row {
   syrveTransactionId: string;
@@ -105,7 +106,7 @@ function fakePrisma() {
 }
 
 function setup() {
-  const syrve = new MockSyrveClient(WALLET);
+  const syrve = new MockSyrveClient(new FakeRedis());
   const { guests, outbox, prisma, raw } = fakePrisma();
   // Очередь как BullMQ: задача с уже стоящим jobId не добавляется.
   const jobs = new Map<string, NotifyJob>();
@@ -334,7 +335,7 @@ describe('NotificationsService: надсилання (outbox)', () => {
     // Новий процес worker: SENDING, захоплені до його старту → UNKNOWN, без повторного надсилання.
     const restarted = new NotificationsService(
       { SYRVE_WALLET_ID: WALLET } as AppConfig, (service as unknown as { prisma: PrismaService }).prisma,
-      new MockSyrveClient(WALLET), { api: { sendMessage } } as unknown as BotService, {} as Queue, {} as Queue,
+      new MockSyrveClient(new FakeRedis()), { api: { sendMessage } } as unknown as BotService, {} as Queue, {} as Queue,
     );
     outbox.get(txId)!.claimedAt = new Date(Date.now() - 1000);
     await expect(restarted.recoverInterrupted()).resolves.toBe(1);
@@ -433,7 +434,7 @@ describe('NotificationsService: неоднозначні помилки Telegram
 
 describe('latestRevision (базова точка)', () => {
   it('є ще сторінки, а ревізія не зростає → помилка, не проміжна ревізія', async () => {
-    const syrve = new MockSyrveClient(WALLET);
+    const syrve = new MockSyrveClient(new FakeRedis());
     jest.spyOn(syrve, 'transactions').mockResolvedValue({ transactions: [], lastRevision: 0n, hasMore: true });
 
     await expect(latestRevision(syrve, 'c')).rejects.toThrow('не зростає');
