@@ -1,5 +1,5 @@
-import { Body, Controller, Get, HttpCode, Inject, Post, Res, UnauthorizedException } from '@nestjs/common';
-import type { CookieOptions, Response } from 'express';
+import { Body, Controller, Get, HttpCode, Inject, Post, Req, Res, UnauthorizedException } from '@nestjs/common';
+import type { CookieOptions, Request, Response } from 'express';
 import { APP_CONFIG } from '../config/config.module';
 import { AppConfig } from '../config/config.schema';
 import { CurrentAdmin, Public, SessionAdmin } from './auth.decorators';
@@ -19,8 +19,10 @@ export class AuthController {
   @Public()
   @Post('login')
   @HttpCode(200)
-  async login(@Body() dto: LoginDto, @Res({ passthrough: true }) res: Response) {
-    const token = await this.auth.login(dto.login, dto.password);
+  async login(@Body() dto: LoginDto, @Req() req: Request, @Res({ passthrough: true }) res: Response) {
+    // За nginx реальный IP — в X-Real-IP; напрямую в api — адрес сокета.
+    const ip = String(req.headers['x-real-ip'] ?? req.socket.remoteAddress ?? 'unknown');
+    const token = await this.auth.login(dto.login, dto.password, ip);
     if (!token) throw new UnauthorizedException('Невірний логін або пароль');
     res.cookie(SESSION_COOKIE, token, { ...this.cookieOptions(), maxAge: SESSION_TTL_MS });
     return { login: dto.login };
@@ -38,8 +40,10 @@ export class AuthController {
     return { login: admin.login };
   }
 
-  // httpOnly — JS страницы не читает токен; lax — защита от CSRF с чужих сайтов; secure — только HTTPS в production.
+  // httpOnly — JS страницы не читает токен; lax — защита от CSRF с чужих сайтов;
+  // secure — только HTTPS: по умолчанию в production, COOKIE_SECURE=false — для локального http.
   private cookieOptions(): CookieOptions {
-    return { httpOnly: true, sameSite: 'lax', secure: this.cfg.NODE_ENV === 'production', path: '/' };
+    const secure = this.cfg.COOKIE_SECURE ?? this.cfg.NODE_ENV === 'production';
+    return { httpOnly: true, sameSite: 'lax', secure, path: '/' };
   }
 }

@@ -29,11 +29,17 @@ export class AuthGuard implements CanActivate {
   }
 }
 
-// Без cookie-parser: нам нужна одна cookie.
+// Без cookie-parser: нам нужна одна cookie. Повреждённое значение (`session=%`) = cookie нет → 401, а не 500.
 export function readCookie(header: string | undefined, name: string): string | null {
   for (const part of (header ?? '').split(';')) {
     const eq = part.indexOf('=');
-    if (eq > 0 && part.slice(0, eq).trim() === name) return decodeURIComponent(part.slice(eq + 1).trim());
+    if (eq > 0 && part.slice(0, eq).trim() === name) {
+      try {
+        return decodeURIComponent(part.slice(eq + 1).trim());
+      } catch {
+        return null;
+      }
+    }
   }
   return null;
 }

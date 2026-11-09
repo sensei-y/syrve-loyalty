@@ -33,6 +33,15 @@ export const configSchema = z.object({
   ADMIN_PASSWORD: z.string().min(8, 'мінімум 8 символів'),
   // Подпись JWT в cookie сессии админа.
   JWT_SECRET: z.string().min(32, 'мінімум 32 символи (згенеруйте: openssl rand -hex 32)'),
+  // Флаг Secure у cookie. Не задано — true при NODE_ENV=production. false — лише для локального http
+  // (Safari й вхід за IP не зберігають Secure-cookie без HTTPS).
+  COOKIE_SECURE: z.preprocess(
+    (v) => (v === '' ? undefined : v),
+    z
+      .enum(['true', 'false'])
+      .transform((v) => v === 'true')
+      .optional(),
+  ),
 });
 
 export type AppConfig = z.infer<typeof configSchema>;

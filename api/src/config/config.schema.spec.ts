@@ -46,3 +46,18 @@ describe('loadConfig: адмін-панель', () => {
     expect(() => loadConfig({ ...base, JWT_SECRET: 'short' })).toThrow('JWT_SECRET');
   });
 });
+
+describe('loadConfig: COOKIE_SECURE', () => {
+  it.each([
+    ['true', true],
+    ['false', false],
+    ['', undefined],
+    [undefined, undefined],
+  ])('%s → %s', (value, expected) => {
+    expect(loadConfig({ ...base, COOKIE_SECURE: value }).COOKIE_SECURE).toBe(expected);
+  });
+
+  it('інше значення відхиляється', () => {
+    expect(() => loadConfig({ ...base, COOKIE_SECURE: 'yes' })).toThrow('COOKIE_SECURE');
+  });
+});
