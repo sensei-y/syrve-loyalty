@@ -1,34 +1,35 @@
 import { useEffect, useState } from 'react';
+import { api } from './api';
+import { GuestPage } from './GuestPage';
+import { Login } from './Login';
 
-type Health = Record<string, unknown> & { status?: string };
-
-async function load(path: string): Promise<Health> {
-  try {
-    const res = await fetch(path);
-    return await res.json();
-  } catch {
-    return { status: 'unreachable' };
-  }
-}
-
-// Заглушка: показывает, что связка nginx → API → Postgres/Redis/Syrve жива.
-// Этап 4: вход, поиск гостя. Этап 5: начисление/списание.
+// Без входа видна только форма логина: все данные идут через /api, закрытый AuthGuard.
 export function App() {
-  const [api, setApi] = useState<Health | null>(null);
-  const [syrve, setSyrve] = useState<Health | null>(null);
+  const [admin, setAdmin] = useState<string | null | undefined>(undefined);
 
   useEffect(() => {
-    void load('/api/health').then(setApi);
-    void load('/api/health/syrve').then(setSyrve);
+    api<{ login: string }>('/auth/me')
+      .then((me) => setAdmin(me.login))
+      .catch(() => setAdmin(null));
   }, []);
 
+  async function logout() {
+    await api('/auth/logout', { method: 'POST' }).catch(() => undefined);
+    setAdmin(null);
+  }
+
+  if (admin === undefined) return <main className="page muted">Завантаження…</main>;
+  if (admin === null) return <Login onLogin={setAdmin} />;
+
   return (
-    <main style={{ fontFamily: 'system-ui, sans-serif', maxWidth: 640, margin: '40px auto', padding: '0 16px' }}>
-      <h1>Syrve Loyalty — адмін-панель</h1>
-      <h2>API</h2>
-      <pre>{api ? JSON.stringify(api, null, 2) : 'Завантаження…'}</pre>
-      <h2>Syrve</h2>
-      <pre>{syrve ? JSON.stringify(syrve, null, 2) : 'Завантаження…'}</pre>
+    <main className="page">
+      <header className="header">
+        <h1>Програма лояльності</h1>
+        <span className="muted">
+          {admin} · <button className="link" onClick={logout}>Вийти</button>
+        </span>
+      </header>
+      <GuestPage onUnauthorized={() => setAdmin(null)} />
     </main>
   );
 }
