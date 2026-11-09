@@ -1,5 +1,5 @@
 import { InjectQueue } from '@nestjs/bullmq';
-import { Inject, Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
+import { Inject, Injectable, Logger, OnApplicationBootstrap, OnModuleDestroy } from '@nestjs/common';
 import { Guest, NotificationStatus } from '@prisma/client';
 import { Queue, UnrecoverableError } from 'bullmq';
 import { BotService } from '../bot/bot.service';
@@ -18,6 +18,7 @@ export const POLL_SCHEDULER_ID = 'poll-transactions'; // фиксированн�
 export const POLL_EVERY_MS = 30_000;
 const MAX_PAGES_PER_POLL = 20; // остальное — в следующий проход
 const REQUEUE_BATCH = 500;
+const SCHEDULER_CHECK_MS = 60_000;
 
 // Задача notify несёт только id: всё остальное — в Postgres (outbox Notification).
 export interface NotifyJob {
@@ -38,10 +39,11 @@ export const NOTIFY_JOB_OPTIONS = {
 //  notify: PENDING → SENDING (захват) → Telegram → SENT. Сообщение могло уйти, а SENT не записался —
 //          строка остаётся SENDING и повторно не шлётся (при старте → UNKNOWN). Одна транзакция = максимум одно сообщение.
 @Injectable()
-export class NotificationsService implements OnApplicationBootstrap {
+export class NotificationsService implements OnApplicationBootstrap, OnModuleDestroy {
   private readonly logger = new Logger(NotificationsService.name);
   private readonly walletId: string;
   private readonly startedAt = new Date();
+  private schedulerTimer?: NodeJS.Timeout;
 
   constructor(
     @Inject(APP_CONFIG) private readonly cfg: AppConfig,
@@ -62,8 +64,22 @@ export class NotificationsService implements OnApplicationBootstrap {
       this.logger.warn('TELEGRAM_BOT_TOKEN не задано — сповіщення вимкнені');
       return;
     }
-    await this.pollQueue.upsertJobScheduler(POLL_SCHEDULER_ID, { every: POLL_EVERY_MS }, { name: 'poll' });
+    await this.ensureScheduler();
     this.logger.log(`Опитування транзакцій кожні ${POLL_EVERY_MS / 1000} с`);
+    // Расписание живёт в Redis: после его очистки / рестарта (в compose без volume) поллер встал бы
+    // до рестарта worker. Раз в минуту восстанавливаем (upsert идемпотентен).
+    this.schedulerTimer = setInterval(
+      () => this.ensureScheduler().catch((e) => this.logger.error(`Розклад опитування: ${describeError(e)}`)),
+      SCHEDULER_CHECK_MS,
+    );
+  }
+
+  onModuleDestroy() {
+    if (this.schedulerTimer) clearInterval(this.schedulerTimer);
+  }
+
+  private async ensureScheduler() {
+    await this.pollQueue.upsertJobScheduler(POLL_SCHEDULER_ID, { every: POLL_EVERY_MS }, { name: 'poll' });
   }
 
   // SENDING от прошлого процесса: он упал во время отправки — дошло ли сообщение, неизвестно.
