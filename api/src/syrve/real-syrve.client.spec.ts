@@ -98,6 +98,22 @@ describe('RealSyrveClient', () => {
     expect(calls('/access_token')).toBe(1);
   });
 
+  it('паралельні виклики після закінчення токена оновлюють його один раз', async () => {
+    const { spy, calls } = mockSyrve();
+    const client = new RealSyrveClient(cfg);
+
+    await client.checkConnection();
+    jest.setSystemTime(Date.now() + 55 * MIN + 1);
+    await Promise.all([client.checkConnection(), client.checkConnection(), client.checkConnection()]);
+
+    expect(calls('/access_token')).toBe(2);
+    const afterRefresh = spy.mock.calls.filter(([url]) => String(url).endsWith('/organizations')).slice(1);
+    expect(afterRefresh).toHaveLength(3);
+    for (const [, init] of afterRefresh) {
+      expect((init!.headers as Record<string, string>).Authorization).toBe('Bearer t2');
+    }
+  });
+
   it('після 401 бере новий токен і повторює запит один раз', async () => {
     const { calls } = mockSyrve({
       '/api/1/organizations': (auth) =>
