@@ -2,7 +2,9 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import { Guest } from '@prisma/client';
 import { randomInt } from 'node:crypto';
 import { normalizePhone } from '../common/phone';
+import { latestRevision } from '../notifications/revision';
 import { PrismaService } from '../prisma/prisma.service';
+import { describeError } from '../syrve/syrve-api.error';
 import { SYRVE_CLIENT, SyrveClient, SyrveCustomer } from '../syrve/syrve-client.interface';
 
 const CARD_NUMBER_ATTEMPTS = 5;
@@ -125,10 +127,20 @@ export class GuestsService {
     }
     const cardNumber = currentCard(customer);
 
+    // Базовая точка уведомлений О6: история до регистрации гостю не шлётся.
+    // Не удалось — регистрация всё равно проходит, базу возьмёт поллер (lastRevision = null).
+    let lastRevision: bigint | null = null;
+    try {
+      lastRevision = await latestRevision(this.syrve, customer.id);
+    } catch (e) {
+      this.logger.warn(`Базова точка гостя ${customer.id} не взята, візьме поллер: ${describeError(e)}`);
+    }
+
     // Телефон уже привязан к другому Telegram — перепривязываем: контакт подтверждён (user_id).
+    // lastRevision при перепривязке не трогаем — позиция поллера сохраняется.
     await this.prisma.guest.upsert({
       where: { phone },
-      create: { telegramId, phone, name: customer.name, syrveCustomerId: customer.id, cardNumber },
+      create: { telegramId, phone, name: customer.name, syrveCustomerId: customer.id, cardNumber, lastRevision },
       update: { telegramId, name: customer.name, syrveCustomerId: customer.id, cardNumber },
     });
     this.logger.log(

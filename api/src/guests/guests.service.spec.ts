@@ -212,6 +212,33 @@ describe('GuestsService', () => {
     expect(Logger.prototype.warn).toHaveBeenCalledWith(expect.stringContaining('не в програмі'));
   });
 
+  it('реєстрація фіксує базову точку сповіщень (останню ревізію історії)', async () => {
+    const { syrve, service, rows } = setup();
+    await service.register(TG, PHONE, 'Олена');
+
+    const last = (await syrve.transactions(rows[0].syrveCustomerId, 0n)).lastRevision;
+    expect(last).toBeGreaterThan(0n); // у нового гостя є службова SetGuestCategory
+    expect(rows[0].lastRevision).toBe(last);
+  });
+
+  it('Syrve не віддав історію → реєстрація проходить, lastRevision = null (базу візьме поллер)', async () => {
+    const { syrve, service, rows } = setup();
+    jest.spyOn(syrve, 'transactions').mockRejectedValue(new Error('Syrve 500'));
+
+    await expect(service.register(TG, PHONE, 'Олена')).resolves.toMatchObject({ name: 'Олена' });
+    expect(rows[0].lastRevision).toBeNull();
+  });
+
+  it('перепривʼязка до іншого Telegram не скидає позицію поллера', async () => {
+    const { service, rows } = setup();
+    await service.register(TG, PHONE, 'Олена');
+    rows[0].lastRevision = 999999n;
+
+    await service.handleContact(222n, PHONE);
+
+    expect(rows[0].lastRevision).toBe(999999n);
+  });
+
   it('незареєстрований Telegram → getCard повертає null', async () => {
     const { service } = setup();
     await expect(service.getCard(999n)).resolves.toBeNull();

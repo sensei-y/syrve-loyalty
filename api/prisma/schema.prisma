@@ -21,7 +21,7 @@ model Guest {
   phone           String   @unique // +380XXXXXXXXX
   name            String
   cardNumber      String
-  lastRevision    BigInt   @default(0) // состояние поллера уведомлений (О6)
+  lastRevision    BigInt? // поллер О6: последняя обработанная ревизия; null — базовая точка ещё не взята
   createdAt       DateTime @default(now())
 }
 
@@ -61,4 +61,12 @@ model Operation {
   finishedAt      DateTime?
 
   @@index([syrveCustomerId, createdAt])
+}
+
+// Дедуп уведомлений О6, переживает очистку Redis (в compose он без volume).
+// Запись — после успешной отправки в Telegram; перед отправкой — проверка.
+model NotifiedTransaction {
+  syrveTransactionId String   @id
+  guestId            String
+  createdAt          DateTime @default(now())
 }
