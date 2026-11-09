@@ -1,8 +1,8 @@
 # План тестового: сервис лояльности на Syrve
 
-ТЗ получено 09.11. Своя тестовая организация, репозиторий публичный, защита — позже (демо + доработка вживую с ИИ).
+ТЗ получено 09.11. Сдать до **10.11, 12:00**. Своя тестовая организация, репозиторий публичный, защита — позже (демо + доработка вживую с ИИ). Вопросы Валентину — в будни 11:00–18:00.
 
-## Цель на день
+## Цель
 
 Обязательная часть работает end-to-end + 4 документа (README, ARCHITECTURE, AI_LOG, звіт). Доп. — только Д1 (історія операцій) и только после О1–О6.
 
@@ -10,30 +10,39 @@
 
 | # | Функция | Готово, когда |
 |---|---|---|
-| О1 | Подключение к Syrve | `/api/health/syrve` возвращает организацию и программу |
-| О2 | Регистрация в Telegram | `/start` → кнопка контакта → имя → гость создан в Syrve, карта выдана |
-| О3 | Карта и баланс в боте | QR с номером карты + актуальный баланс |
+| О1 | Подключение к Syrve | `/api/health/syrve` возвращает «Демо В.С.» и программу |
+| О2 | Регистрация в Telegram | `/start` → кнопка контакта → имя → гость в Syrve, в программе, с картой; повтор — без дубля |
+| О3 | Карта и баланс в боте | номер карты, QR, актуальный баланс нашего кошелька |
 | О4 | Админка: вход + поиск гостя | без входа страницы недоступны; поиск по телефону → имя, карта, баланс |
 | О5 | Начисление / списание | сумма + причина, в минус нельзя, журнал: кто, когда, сколько, почему |
 | О6 | Уведомления | «Нараховано N бонусів, баланс M» при любом изменении (панель или кабинет Syrve), одна операция — одно сообщение |
 
 Доп.: **Д1 — история операций** в боте и админке (транзакции всё равно читаем для О6). Остальные Д — нет, причину написать в отчёте.
 
-## Тайминг (~9 часов)
+## Порядок и время
 
-| Время | Что | Результат |
-|---|---|---|
-| 0:00–0:30 | Прочитать ТЗ, уточнить срок сдачи, поправить план | план под ТЗ |
-| 0:30–1:30 | Разведка Syrve API: токен, организации, программы, тестовый гость; принять приглашение в кабинет | id в `.env`, примеры ответов в `docs/api-samples/` (без ключа!) |
-| 1:30–2:00 | Скелет (если не готов заранее): compose, Nest, Prisma, health | `docker compose up` поднимает всё |
-| 2:00–3:30 | О1: `SyrveModule` (токен, ретраи, ошибки) | `/health/syrve` зелёный |
-| 3:30–5:00 | О2 + О3: `GuestsModule` + `BotModule` | регистрация и баланс на живом API |
-| 5:00–6:30 | О4 + О5: `AuthModule` + `LoyaltyModule` + админка | поиск, начисление, списание, журнал |
-| 6:30–7:30 | О6: `NotificationsModule` (BullMQ) | изменение баланса → сообщение, без дублей |
-| 7:30–8:00 | Д1 история (если О1–О6 готовы) | — |
-| 8:00–9:00 | README, ARCHITECTURE, AI_LOG, звіт; проверка с нуля | `git clone` → `docker compose up` работает |
+| Когда | Этап | Ветка | Готово, когда |
+|---|---|---|---|
+| 09.11 до 11:30 | Подготовка: репозиторий, `.env`, Docker | — | ✅ db и redis true |
+| 11:30–12:30 | **О1** | `feat/o1-syrve-connection` | health/syrve зелёный, тесты токена |
+| 12:30–14:30 | **О2 + О3** | `feat/o2-o3-registration` | регистрация со своего телефона, карта и баланс в боте |
+| 14:30–16:30 | **О4 + О5** | `feat/o4-o5-admin` | вход, поиск, начисление/списание, журнал |
+| 16:30–18:00 | **О6** | `feat/o6-notifications` | начисление в панели и в кабинете → по одному сообщению |
+| вечер | **Д1** | `feat/d1-history` | история в боте и админке |
+| вечер | Документы | `docs/final` | README, ARCHITECTURE, AI_LOG, звіт |
+| 10.11 9:00–10:30 | Проверка с нуля на чистом клоне, правки | `fix/*` | `git clone` → `docker compose up` → все О по README |
+| 10.11 до 11:00 | Отправить ссылку | — | — |
 
-Правило: если пункт съел в 1.5 раза больше времени — упростить и записать в README, что упрощено.
+Всё, что касается Syrve API, — до 18:00, пока можно спросить. Если этап съел в 1.5 раза больше времени — упростить и записать в звіт, что упрощено.
+
+## Процесс на каждый этап
+
+1. `git checkout -b feat/<этап>` от свежего `main`.
+2. Промпт в Claude Code → план → «ок» → код + unit-тесты на критичное.
+3. `npm test`, ручная проверка по колонке «Готово, когда».
+4. Ревью Codex по `AGENTS.md` → исправить или объяснить.
+5. PR с описанием «что сделано / как проверено» → merge в `main`.
+6. Строка в `AI_LOG.md`: запрос и где ИИ ошибся.
 
 ## Стек и почему
 
@@ -41,11 +50,13 @@
 |---|---|---|
 | Backend | NestJS + TypeScript | знаю по Lyra Board; модули и DI дают структуру из коробки. Express — меньше бойлерплейта, но структуру держать самому |
 | ORM | Prisma + PostgreSQL | знаю; схема читается как документация; миграции в Git. Drizzle — новый инструмент в день тестового |
-| Очереди | Redis + BullMQ | стек вакансии; repeatable jobs, ретраи, переживают рестарт, дедуп через `jobId`. `setInterval` теряет состояние |
+| Очереди | Redis + BullMQ | стек вакансии; repeatable jobs, ретраи отправки, переживают рестарт процесса. `setInterval` теряет состояние и не ретраит |
 | Бот | grammY | TS из коробки, плагин `conversations` для пошаговой регистрации. Telegraf слабее по типам |
 | Админка | React + Vite | внутренняя панель, SSR не нужен. Next.js — лишняя сложность и новый для меня |
-| Прокси | nginx | отдаёт статику админки и проксирует `/api` — один origin, без CORS |
+| Прокси | nginx | отдаёт статику админки и проксирует `/api` — один origin, без CORS, cookie работают как есть |
+| Авторизация | `@nestjs/jwt` в httpOnly cookie + `crypto.scrypt` | scrypt встроен в Node — без нативной сборки bcrypt на Alpine. Cookie: `httpOnly`, `sameSite=lax`, `secure` в production |
 | Валидация | class-validator (DTO) + zod для `.env` | нативный путь Nest; zod — упасть на старте при кривом конфиге |
+| Тесты | Jest (ts-jest) | стандарт для Nest; только unit на критичную логику |
 | Запуск | Docker Compose | всё одной командой |
 
 ## Архитектура: один код, два процесса
@@ -61,27 +72,14 @@ Admin (React) ─nginx─► api процесс           worker процесс
                            Postgres         Redis       ──► Syrve Cloud API
 ```
 
-- **api** — HTTP для админки.
-- **worker** — бот (long polling) + обработчики очередей.
+- **api** — HTTP для админки. **worker** — бот (long polling) + обработчики очередей.
 - Зачем два: бот завис или поллер упал — админка работает; рестарт независимый. Код общий.
-
-```ts
-// main.ts — API
-const app = await NestFactory.create(ApiModule);
-await app.listen(3000);
-
-// worker.ts — бот + очереди, без HTTP
-const app = await NestFactory.createApplicationContext(WorkerModule);
-app.get(BotService).start();
-```
-
-Compose: `postgres`, `redis`, `api`, `worker`, `admin` (nginx + статика).
 
 ### Модули
 
 | Модуль | Отвечает за |
 |---|---|
-| `ConfigModule` | `.env` с проверкой zod |
+| `ConfigModule` | `.env` с проверкой zod (id Syrve — UUID) |
 | `PrismaModule` | доступ к БД |
 | `SyrveModule` | токен, вызовы API, ошибки. Единственное место, которое знает про Syrve |
 | `GuestsModule` | регистрация, поиск, привязка Telegram ↔ Syrve |
@@ -89,48 +87,57 @@ Compose: `postgres`, `redis`, `api`, `worker`, `admin` (nginx + статика).
 | `AuthModule` | вход админа, JWT в httpOnly cookie, guard |
 | `BotModule` | хендлеры grammY — только UI, логика в сервисах |
 | `NotificationsModule` | очереди `poll` и `notify` |
-| `HealthModule` | `/health`, `/health/syrve` |
-
-Бот и контроллеры тонкие — регистрация из бота и поиск из админки идут через один `GuestsService`.
+| `HealthModule` | `/health`, `/health/syrve` (наружу — без деталей ошибки) |
 
 ### Syrve за интерфейсом
 
+Контракт повторяет реальные методы API (см. `docs/syrve-api-notes.md`), а не «удобную» абстракцию: регистрация — это три вызова, и сервис делает их явно.
+
 ```ts
 export interface SyrveClient {
-  findCustomer(q: { phone?: string; card?: string }): Promise<Customer | null>;
-  createCustomer(data: NewCustomer): Promise<Customer>;
-  getBalance(customerId: string): Promise<number>;
+  checkConnection(): Promise<SyrveConnectionInfo>;
+  findCustomer(q: { phone: string } | { cardNumber: string } | { id: string }): Promise<SyrveCustomer | null>;
+  upsertCustomer(data: { phone: string; name: string }): Promise<{ id: string }>;   // create_or_update → только id
+  addToProgram(customerId: string): Promise<void>;
+  addCard(customerId: string, cardNumber: string): Promise<void>;
   topup(customerId: string, sum: number, comment: string): Promise<void>;
   chargeoff(customerId: string, sum: number, comment: string): Promise<void>;
-  transactions(customerId: string, fromRevision: bigint): Promise<TxPage>;
+  transactions(customerId: string, fromRevision: bigint): Promise<SyrveTransactionPage>;
 }
 
-@Module({
-  providers: [{
-    provide: SYRVE_CLIENT,
-    useFactory: (cfg: Config) => cfg.SYRVE_MODE === 'mock'
-      ? new MockSyrveClient()
-      : new RealSyrveClient(cfg),
-    inject: [Config],
-  }],
-  exports: [SYRVE_CLIENT],
-})
-export class SyrveModule {}
+interface SyrveCustomer {
+  id: string; name: string; phone: string;
+  cards: { number: string; track: string }[];
+  balance: number;                     // уже выбран по SYRVE_WALLET_ID
+}
+
+interface SyrveTransaction {
+  id: string;
+  revision: bigint;
+  type: string;                        // typeName
+  sum: number;                         // со знаком
+  walletId: string | null;             // null у служебных записей
+  balanceAfter: number | null;
+  comment: string | null;
+  createdAt: string;
+}
 ```
 
-Зачем: работа без доступа к API; формат Syrve меняется — правка в одном месте.
+Правило вызовов: повтор запроса — **только после 401** с новым токеном. Таймаут и сетевые ошибки не повторять: `topup` / `chargeoff` могли уже примениться.
 
 ### Уведомления: две очереди
 
 ```
-poll (раз в 30 с) ── по каждому гостю: transactions(lastRevision)
-      └─ новая транзакция ──► notify(jobId = txId) ──► Telegram
+poll (раз в 30 с) ── по каждому гостю: transactions(lastRevision), все страницы по 50
+      └─ walletId наш && sum ≠ 0 && нет в NotifiedTransaction
+            └─► notify(jobId = txId) ──► Telegram ──► запись в NotifiedTransaction
+      └─ lastRevision гостя обновляется только после постановки всех уведомлений в очередь
 ```
 
-- `poll` только находит изменения, `notify` только отправляет.
-- `jobId = txId` → BullMQ не создаст дубль.
-- Telegram упал → ретраится только отправка.
-- Опрос, а не вебхук: нужно видеть и изменения с кассы / из кабинета Syrve. Если в документации есть вебхук на изменение кошелька — взять его и описать в README.
+- `poll` только находит изменения, `notify` только отправляет; Telegram упал — ретраится только отправка.
+- Дубли закрыты дважды: `jobId = txId` в BullMQ (пока задача в Redis) и таблица `NotifiedTransaction` в Postgres (после очистки или рестарта Redis — в compose он без volume).
+- Опрос, а не вебхук: нужно видеть и изменения из кабинета Syrve.
+- Текст: «Нараховано N бонусів, баланс M» / «Списано N бонусів, баланс M»; M — `balanceAfter` транзакции.
 
 ## Данные: что где хранится
 
@@ -138,90 +145,98 @@ poll (раз в 30 с) ── по каждому гостю: transactions(lastR
 **У нас:** только то, чего в Syrve нет.
 
 ```prisma
-model Guest {
+model Guest {                              // гости, зарегистрированные через бота
   id              String   @id @default(uuid())
   telegramId      BigInt   @unique
   syrveCustomerId String   @unique
   phone           String   @unique
   name            String
   cardNumber      String
-  lastRevision    BigInt   @default(0)   // состояние поллера
+  lastRevision    BigInt   @default(0)    // состояние поллера
   createdAt       DateTime @default(now())
 }
 
 model Admin {
   id           String @id @default(uuid())
   login        String @unique
-  passwordHash String
+  passwordHash String                     // scrypt
 }
 
-model Operation {                          // журнал ручных операций админки
+model Operation {                          // журнал ручных операций: кто, когда, сколько, почему
   id              String   @id @default(uuid())
+  idempotencyKey  String   @unique
   syrveCustomerId String
-  type            OpType                  // TOPUP | CHARGEOFF
+  type            OpType                   // TOPUP | CHARGEOFF
   amount          Decimal
   reason          String
-  status          OpStatus                // SUCCESS | FAILED
+  status          OpStatus                 // PENDING | SUCCESS | FAILED | UNKNOWN
   error           String?
-  idempotencyKey  String   @unique        // двойной клик / ретрай
   adminId         String
   createdAt       DateTime @default(now())
+  finishedAt      DateTime?
+}
+
+model NotifiedTransaction {                // дедуп уведомлений, переживает очистку Redis
+  syrveTransactionId String   @id
+  guestId            String
+  createdAt          DateTime @default(now())
 }
 ```
 
-Дедуп уведомлений — через `jobId` в BullMQ. Если нужна гарантия после очистки Redis — добавить таблицу `NotifiedTransaction`.
-
 В Syrve нет метода «все гости организации» → список зарегистрированных через бота храним сами.
 
-## Syrve Cloud API (сверить с документацией в первый час!)
+## Подводные камни (проверено на живом API — `docs/syrve-api-notes.md`)
 
-Базовый URL: `https://api-eu.syrve.live`. Все запросы — POST с JSON, `Authorization: Bearer <token>`.
-
-| Что | Эндпоинт (ориентировочно) |
-|---|---|
-| Токен по apiLogin (живёт ~1 час) | `/api/1/access_token` |
-| Организации | `/api/1/organizations` |
-| Программы лояльности | `/api/1/loyalty/syrve/program` |
-| Найти гостя (phone / cardNumber / id) | `/api/1/loyalty/syrve/customer/info` |
-| Создать / обновить гостя | `/api/1/loyalty/syrve/customer/create_or_update` |
-| Добавить карту | `/api/1/loyalty/syrve/customer/card/add` |
-| Подключить к программе | `/api/1/loyalty/syrve/customer/program/add` |
-| Начислить | `/api/1/loyalty/syrve/customer/wallet/topup` |
-| Списать | `/api/1/loyalty/syrve/customer/wallet/chargeoff` |
-| Транзакции гостя | `/api/1/loyalty/syrve/customer/transactions/by_revision` |
-
-## Подводные камни
-
-1. **Несколько программ лояльности** → `SYRVE_PROGRAM_ID` явно, баланс из кошелька этой программы.
-2. **Syrve пускает списание в минус** → проверка баланса до `chargeoff`.
-3. **Токен живёт час** → кэш + обновление за 5 минут до истечения и при 401.
-4. **Публичный репозиторий** → `apiLogin` только в `.env`; перед каждым push проверить `git grep` на ключ. Docx с ТЗ не коммитить.
-9. **Настройки программ в кабинете Syrve не менять** без согласования (правило ТЗ).
-5. **Телефон в Telegram** → только `request_contact` + проверка `contact.user_id === from.id`.
-6. **Повторная регистрация** → сначала `customer/info` по телефону; гость есть — привязать, не дублировать.
-7. **Изменения извне** → уведомления на опросе транзакций, не только на своих операциях.
-8. **Формат телефона** → везде `+380XXXXXXXXX`.
+1. **4 программы в организации** → `SYRVE_PROGRAM_ID` и `SYRVE_WALLET_ID` явно в `.env`; `programId ≠ walletId`.
+2. **У гостя 3 кошелька** → баланс только по `SYRVE_WALLET_ID`.
+3. **Syrve пускает списание в минус** → проверка баланса до `chargeoff`.
+4. **«Гость не найден» = HTTP 400** с `Validation_IncorrectPhone` → `null`; остальные 400 — ошибка.
+5. **`create_or_update` — upsert по телефону** и может перезаписать имя → сначала `findCustomer`.
+6. **Служебные транзакции** (`SetGuestCategory`, `sum: 0`, `walletId: null`) → фильтр для уведомлений.
+7. **`revision` > 2^32** → `BigInt`.
+8. **Токен живёт час** → кэш, обновление за 5 минут до истечения и при 401; один общий промис на параллельные запросы.
+9. **Публичный репозиторий** → `apiLogin` только в `.env`; перед push — `git grep` на ключ. Docx с ТЗ не коммитить.
+10. **Настройки программ в кабинете не менять** (правило ТЗ).
+11. **Телефон в Telegram** → только `request_contact` + проверка `contact.user_id === from.id`; формат везде `+380XXXXXXXXX`.
 
 ## Ключевые потоки
 
 **Регистрация (О2):**
 `/start` → есть Guest с этим telegramId? → меню.
-Нет → кнопка «Надіслати контакт» → проверка `user_id` → имя → `findCustomer` по телефону → нет: `createCustomer` + карта + программа → сохранить Guest → показать карту.
+Нет → «Надіслати контакт» → проверка `user_id` → нормализация телефона → имя → `findCustomer({ phone })`:
+- нет → `upsertCustomer` → `addToProgram` → `addCard` → `findCustomer({ id })` за картой и балансом;
+- есть → не перезаписывать; если нет карты — `addCard`; программу — `addToProgram` (повтор безопасен — проверить).
+
+→ сохранить Guest → показать карту и баланс.
 
 **Начисление / списание (О5):**
-DTO-валидация (сумма > 0, макс. 2 знака, причина 3–200) → для списания `getBalance` и проверка → `idempotencyKey` с фронта → вызов Syrve → запись Operation (SUCCESS / FAILED).
+DTO-валидация (сумма > 0, максимум 2 знака, причина 3–200) →
+1. `INSERT Operation (PENDING, idempotencyKey)`; конфликт ключа → вернуть результат существующей операции (это повтор);
+2. для списания: `findCustomer({ id })` → баланс ≥ суммы, иначе `FAILED` «Недостатньо бонусів»;
+3. вызов Syrve;
+4. ответ → `SUCCESS`; явная ошибка Syrve → `FAILED`; таймаут / сеть → `UNKNOWN` (не повторять, админ сверяет в кабинете).
+
+`idempotencyKey` генерирует фронт (UUID на открытие формы).
 
 **Уведомления (О6):** см. «две очереди» выше.
 
-## Вопросы к Валентину
+## Тесты (unit, Jest)
 
-1. Срок: сдать до конца сегодня или до утра завтра?
-
-Остальное решаем сами и пишем в звіт (программу и её id находим через API).
+| Что | Этап |
+|---|---|
+| токен: кэш, обновление после истечения, один запрос при параллельных вызовах, 401 → новый токен и повтор | О1 |
+| ошибка Syrve → `SyrveApiError` с `errorCode`; таймаут не повторяется | О1 |
+| `Validation_IncorrectPhone` → `null` | О2 |
+| нормализация телефона | О2 |
+| выбор кошелька по `SYRVE_WALLET_ID` | О3 |
+| списание сверх баланса → `FAILED`, Syrve не вызывается | О5 |
+| одинаковый `idempotencyKey` → одна операция в Syrve | О5 |
+| фильтр транзакций + дедуп уведомлений | О6 |
+| mock-сценарий регистрация → баланс → начисление → списание | если останется время |
 
 ## Что сдать (раздел 8 ТЗ)
 
 1. **README.md** — запуск (`cp .env.example .env` → `docker compose up --build`), mock-режим, как проверить каждую О по шагам.
 2. **ARCHITECTURE.md** — части сервиса, что храним сами / что берём из Syrve, обмен с Syrve и Telegram, почему так (таблица стека отсюда).
-3. **AI_LOG.md** — инструменты (Claude Code, Codex), 5–10 ключевых запросов, где ИИ ошибся и как заметил, ссылка на CLAUDE.md. **Вести по ходу дня.**
-4. **Звіт** (раздел в README или REPORT.md) — сделано / проверено и как / не сделано и почему.
+3. **AI_LOG.md** — инструменты, 5–10 ключевых запросов, где ИИ ошибся и как заметил, ссылки на CLAUDE.md и AGENTS.md. **Вести по ходу дня.**
+4. **Звіт** (REPORT.md) — сделано / проверено и как / не сделано и почему. Отдельной строкой: каркас подготовлен 08.11, бизнес-логика — 09.11.

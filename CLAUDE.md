@@ -10,7 +10,7 @@
 
 ## Стек (фиксирован)
 
-NestJS + TypeScript, class-validator (DTO), zod (только `.env`), Prisma + PostgreSQL, Redis + BullMQ (`@nestjs/bullmq`), grammY, React + Vite, nginx, Docker Compose.
+NestJS + TypeScript, class-validator (DTO), zod (только `.env`), Prisma + PostgreSQL, Redis + BullMQ (`@nestjs/bullmq`), grammY, `@nestjs/jwt` + `crypto.scrypt`, Jest, React + Vite, nginx, Docker Compose.
 
 ## Структура
 
@@ -42,11 +42,15 @@ docs/syrve-api-notes.md   реальные ответы и поведение Sy
 - Бот и контроллеры тонкие: только ввод/вывод, логика в сервисах.
 - Источник правды по балансу и транзакциям — Syrve. Не хранить баланс в нашей БД.
 - Списание: всегда проверять баланс до `chargeoff` (Syrve пускает в минус).
-- Каждая ручная операция пишется в `Operation`, включая неуспешные.
-- Начисление и списание идемпотентны по `idempotencyKey`. Уведомления — по `jobId = txId`.
+- Баланс гостя — только кошелёк `SYRVE_WALLET_ID` из `walletBalances`, не первый в списке.
+- Начисление / списание: **сначала** `Operation` со статусом `PENDING` (уникальный `idempotencyKey`), **потом** вызов Syrve, затем `SUCCESS` / `FAILED` / `UNKNOWN`. Конфликт ключа = повтор запроса, Syrve второй раз не вызывать.
+- Повтор HTTP-запроса к Syrve — только после 401 с новым токеном. Таймаут и сетевые ошибки **не повторять**: `topup` / `chargeoff` могли уже примениться → статус `UNKNOWN`.
+- Уведомления: только транзакции с нашим `walletId` и `sum !== 0`; все страницы `by_revision`; `lastRevision` обновлять после постановки всех уведомлений в очередь; дедуп — `jobId = txId` + таблица `NotifiedTransaction`.
+- Интерфейс `SyrveClient` повторяет реальные методы API (см. PLAN.md → «Syrve за интерфейсом»), а не скрывает их за одним «createCustomer».
 - Телефон нормализуется в `+380XXXXXXXXX` через `common/phone.ts`.
 - Секреты только из `.env` через `ConfigModule`. Никаких секретов в коде, логах и `docs/`.
-- Ошибки Syrve логировать с `correlationId`. Пользователю — понятный текст на украинском.
+- Ошибки Syrve логировать с `correlationId`. Пользователю и в публичные эндпоинты (включая health) — понятный нейтральный текст на украинском, без внутренних деталей.
+- Авторизация админки: `@nestjs/jwt` в httpOnly cookie (`sameSite=lax`, `secure` в production), пароль — `crypto.scrypt`. Без bcrypt.
 - Тексты для пользователя (бот, админка) — на украинском.
 - Миграции только через `prisma migrate`. Не править применённые миграции.
 
