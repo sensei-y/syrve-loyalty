@@ -12,8 +12,11 @@ export const T = {
   unknown: 'Не зовсім зрозумів. Натисніть «Моя картка», щоб побачити картку й баланс.',
   unavailable: 'Сервіс тимчасово недоступний. Спробуйте, будь ласка, трохи пізніше.',
   registered: (name: string) => `Готово, ${name}! Ваша картка лояльності 👇`,
-  card: (cardNumber: string, balance: number) =>
-    `💳 Картка: ${cardNumber}\n💰 Бонусів на рахунку: ${formatBonus(balance)}\n\nПокажіть QR-код касиру.`,
+  // balance = null — у гостя нет кошелька программы: не показываем ложный ноль.
+  card: (cardNumber: string, balance: number | null) =>
+    `💳 Картка: ${cardNumber}\n` +
+    (balance === null ? '💰 Баланс недоступний' : `💰 Бонусів на рахунку: ${formatBonus(balance)}`) +
+    '\n\nПокажіть QR-код касиру.',
 };
 
 function formatBonus(n: number): string {

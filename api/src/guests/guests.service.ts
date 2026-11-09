@@ -10,7 +10,7 @@ const CARD_NUMBER_ATTEMPTS = 5;
 export interface GuestCard {
   name: string;
   cardNumber: string;
-  balance: number;
+  balance: number | null; // null — у гостя нет кошелька нашей программы
 }
 
 export type ContactResult =
@@ -56,12 +56,17 @@ export class GuestsService {
   }
 
   // Актуальные карта и баланс из Syrve. null — гость не зарегистрирован в боте.
+  // Guest.cardNumber — только кэш: карту могли заменить или удалить в кабинете Syrve.
   async getCard(telegramId: bigint): Promise<GuestCard | null> {
     const guest = await this.findByTelegramId(telegramId);
     if (!guest) return null;
-    const customer = await this.syrve.findCustomer({ id: guest.syrveCustomerId });
-    if (!customer) throw new Error(`Гостя ${guest.syrveCustomerId} немає в Syrve`);
-    return this.toCard(customer, guest.cardNumber);
+    const customer = await this.mustFind(guest.syrveCustomerId);
+    const cardNumber = currentCard(customer, guest.cardNumber);
+    if (cardNumber !== guest.cardNumber) {
+      await this.prisma.guest.update({ where: { id: guest.id }, data: { cardNumber } });
+      this.logger.log(`Картку гостя ${customer.id} оновлено з даних Syrve`);
+    }
+    return this.toCard(customer, cardNumber);
   }
 
   private async doRegister(telegramId: bigint, phone: string, name?: string): Promise<GuestCard> {
@@ -69,26 +74,27 @@ export class GuestsService {
     if (known) return this.getCard(telegramId) as Promise<GuestCard>;
 
     const startedAt = Date.now();
-    let customer = await this.syrve.findCustomer({ phone });
-    const isNew = !customer;
-    if (!customer) {
+    const existing = await this.syrve.findCustomer({ phone });
+    let customerId: string;
+    if (!existing) {
       if (!name) throw new Error("Для нового гостя потрібне ім'я");
-      const { id } = await this.syrve.upsertCustomer({ phone, name });
-      await this.syrve.addToProgram(id);
-      await this.syrve.addCard(id, await this.freeCardNumber());
-      customer = await this.mustFind(id);
+      ({ id: customerId } = await this.syrve.upsertCustomer({ phone, name }));
+      await this.syrve.addToProgram(customerId);
+      await this.syrve.addCard(customerId, await this.freeCardNumber());
     } else {
       // Существующий гость: create_or_update не вызываем — он перезаписал бы имя.
       // Повтор program/add безопасен (проверено на живом API).
-      await this.syrve.addToProgram(customer.id);
-      if (customer.cards.length === 0) {
-        await this.syrve.addCard(customer.id, await this.freeCardNumber());
-        customer = await this.mustFind(customer.id);
-      }
+      customerId = existing.id;
+      await this.syrve.addToProgram(customerId);
+      if (existing.cards.length === 0) await this.syrve.addCard(customerId, await this.freeCardNumber());
     }
 
-    const cardNumber = customer.cards[0]?.number;
-    if (!cardNumber) throw new Error(`У гостя ${customer.id} немає картки після реєстрації`);
+    // После program/add — всегда свежий гость: появился кошелёк, могли начислиться стартовые бонусы.
+    const customer = await this.mustFind(customerId);
+    if (customer.balance === null) {
+      throw new Error(`Після program/add у гостя ${customerId} немає гаманця SYRVE_WALLET_ID`);
+    }
+    const cardNumber = currentCard(customer);
 
     // Телефон уже привязан к другому Telegram — перепривязываем: контакт подтверждён (user_id).
     await this.prisma.guest.upsert({
@@ -97,21 +103,22 @@ export class GuestsService {
       update: { telegramId, name: customer.name, syrveCustomerId: customer.id, cardNumber },
     });
     this.logger.log(
-      `Гість ${customer.id} ${isNew ? 'створений' : 'привʼязаний'} у Syrve за ${Date.now() - startedAt} мс`,
+      `Гість ${customer.id} ${existing ? 'привʼязаний' : 'створений'} у Syrve за ${Date.now() - startedAt} мс`,
     );
     return this.toCard(customer, cardNumber);
   }
 
+  // null-баланс не превращаем в 0: «нет кошелька» и «ноль бонусов» — разные вещи.
   private toCard(customer: SyrveCustomer, cardNumber: string): GuestCard {
     if (customer.balance === null) {
-      this.logger.warn(`У гостя ${customer.id} немає гаманця SYRVE_WALLET_ID — гість не в програмі; показуємо 0`);
+      this.logger.warn(`У гостя ${customer.id} немає гаманця SYRVE_WALLET_ID — гість не в програмі`);
     }
-    return { name: customer.name, cardNumber, balance: customer.balance ?? 0 };
+    return { name: customer.name, cardNumber, balance: customer.balance };
   }
 
   private async mustFind(id: string): Promise<SyrveCustomer> {
     const customer = await this.syrve.findCustomer({ id });
-    if (!customer) throw new Error(`Гостя ${id} не знайдено в Syrve одразу після створення`);
+    if (!customer) throw new Error(`Гостя ${id} не знайдено в Syrve`);
     return customer;
   }
 
@@ -128,4 +135,13 @@ export class GuestsService {
   protected generateCardNumber(): string {
     return String(randomInt(1_000_000_000, 10_000_000_000));
   }
+}
+
+// Карта для показа: сохранённая, если она ещё есть у гостя в Syrve (у гостя их может быть несколько),
+// иначе — первая актуальная.
+function currentCard(customer: SyrveCustomer, preferred?: string): string {
+  const numbers = customer.cards.map((c) => c.number);
+  if (preferred && numbers.includes(preferred)) return preferred;
+  if (!numbers[0]) throw new Error(`У гостя ${customer.id} немає картки в Syrve`);
+  return numbers[0];
 }

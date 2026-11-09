@@ -20,8 +20,17 @@ function fakePrisma() {
         return row;
       },
     ),
+    update: jest.fn(async ({ where, data }: { where: { id: string }; data: Partial<Guest> }) =>
+      Object.assign(rows.find((r) => r.id === where.id)!, data),
+    ),
   };
   return { rows, prisma: { guest } as unknown as PrismaService };
+}
+
+// Прямой доступ к гостю внутри mock — чтобы смоделировать изменения «в кабинете Syrve».
+function mockRow(syrve: MockSyrveClient, id: string) {
+  return (syrve as unknown as { customers: Map<string, { cards: string[]; balance: number; inProgram: boolean }> })
+    .customers.get(id)!;
 }
 
 const TG = 111n;
@@ -142,7 +151,52 @@ describe('GuestsService', () => {
     expect(spy.addCard).toHaveBeenCalledTimes(1);
   });
 
-  it('у гостя немає нашого гаманця → баланс 0 і попередження в лозі', async () => {
+  it('існуючий гість із карткою, ще не в програмі → баланс з повторного запиту після addToProgram', async () => {
+    const { syrve, service } = setup();
+    const { id } = await syrve.upsertCustomer({ phone: PHONE, name: 'Стара назва' });
+    await syrve.addCard(id, '5550001111');
+    mockRow(syrve, id).balance = 120; // стартовые бонусы появятся, когда гость попадёт в программу
+
+    const result = await service.handleContact(TG, PHONE);
+
+    expect(result).toMatchObject({ kind: 'registered', card: { balance: 120 } });
+  });
+
+  it('гаманця немає навіть після addToProgram → реєстрація падає, Guest не зберігається', async () => {
+    const { syrve, service, spy, rows } = setup();
+    await syrve.upsertCustomer({ phone: PHONE, name: 'Стара назва' });
+    spy.addToProgram.mockResolvedValue(undefined); // program/add «прошёл», но кошелёк не появился
+
+    await expect(service.handleContact(TG, PHONE)).rejects.toThrow('SYRVE_WALLET_ID');
+    expect(rows).toHaveLength(0);
+  });
+
+  it('картку замінили в Syrve → getCard показує нову й оновлює кеш', async () => {
+    const { syrve, service, rows } = setup();
+    await service.register(TG, PHONE, 'Олена');
+    mockRow(syrve, rows[0].syrveCustomerId).cards = ['7777777777'];
+
+    await expect(service.getCard(TG)).resolves.toMatchObject({ cardNumber: '7777777777' });
+    expect(rows[0].cardNumber).toBe('7777777777');
+  });
+
+  it('кілька карток, збережена серед них → getCard лишає збережену', async () => {
+    const { syrve, service, rows } = setup();
+    const { cardNumber } = await service.register(TG, PHONE, 'Олена');
+    mockRow(syrve, rows[0].syrveCustomerId).cards = ['8888888888', cardNumber];
+
+    await expect(service.getCard(TG)).resolves.toMatchObject({ cardNumber });
+  });
+
+  it('карток у Syrve не лишилось → getCard падає з помилкою', async () => {
+    const { syrve, service, rows } = setup();
+    await service.register(TG, PHONE, 'Олена');
+    mockRow(syrve, rows[0].syrveCustomerId).cards = [];
+
+    await expect(service.getCard(TG)).rejects.toThrow('немає картки');
+  });
+
+  it('у гостя немає нашого гаманця → balance: null (не 0) і попередження в лозі', async () => {
     const { syrve, service, rows } = setup();
     await service.register(TG, PHONE, 'Олена');
     // гость «выпал» из программы: mock отдаёт balance: null
@@ -154,7 +208,7 @@ describe('GuestsService', () => {
       balance: null,
     });
 
-    await expect(service.getCard(TG)).resolves.toMatchObject({ balance: 0 });
+    await expect(service.getCard(TG)).resolves.toMatchObject({ balance: null });
     expect(Logger.prototype.warn).toHaveBeenCalledWith(expect.stringContaining('не в програмі'));
   });
 
