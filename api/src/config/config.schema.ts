@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 // id Syrve не соответствуют RFC 4122 (биты версии/варианта произвольные), поэтому не z.string().uuid().
-const SYRVE_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+export const SYRVE_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // Пустое значение из .env (`SYRVE_PROGRAM_ID=`) = не задано; mock-режим работает без id.
 const syrveId = z.preprocess(

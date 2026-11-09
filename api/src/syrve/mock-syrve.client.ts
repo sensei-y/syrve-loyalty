@@ -59,12 +59,19 @@ export class MockSyrveClient implements SyrveClient {
     return c;
   }
 
-  private notImplemented(): never {
-    throw new Error('MockSyrveClient: ще не реалізовано (О5/О6)');
+  async topup(customerId: string, sum: number): Promise<void> {
+    this.get(customerId).balance += sum;
   }
 
-  topup(): Promise<void> { return this.notImplemented(); }
-  chargeoff(): Promise<void> { return this.notImplemented(); }
+  // Как живой API: в минус пускает, проверка баланса — на стороне вызывающего.
+  async chargeoff(customerId: string, sum: number): Promise<void> {
+    this.get(customerId).balance -= sum;
+  }
+
+  private notImplemented(): never {
+    throw new Error('MockSyrveClient: ще не реалізовано (О6)');
+  }
+
   transactions(): Promise<SyrveTransactionPage> { return this.notImplemented(); }
 }
 

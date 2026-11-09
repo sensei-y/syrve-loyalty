@@ -337,3 +337,25 @@ describe('RealSyrveClient: гості', () => {
     });
   });
 });
+
+describe('RealSyrveClient: гаманець', () => {
+  afterEach(() => jest.restoreAllMocks());
+
+  it.each([
+    ['topup', '/api/1/loyalty/syrve/customer/wallet/topup'],
+    ['chargeoff', '/api/1/loyalty/syrve/customer/wallet/chargeoff'],
+  ] as const)('%s шле наш walletId і суму', async (method, path) => {
+    const { spy } = mockSyrve({ [path]: () => reply(200, {}) });
+
+    await new RealSyrveClient(cfg)[method]('cust-1', 12.5, 'Причина — admin');
+
+    const call = spy.mock.calls.find(([url]) => String(url).endsWith(path))!;
+    expect(JSON.parse(String(call[1]!.body))).toEqual({
+      organizationId: ORG,
+      customerId: 'cust-1',
+      walletId: WALLET,
+      sum: 12.5,
+      comment: 'Причина — admin',
+    });
+  });
+});

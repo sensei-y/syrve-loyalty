@@ -127,12 +127,24 @@ export class RealSyrveClient implements SyrveClient {
     });
   }
 
-  private notImplemented(): never {
-    throw new Error('RealSyrveClient: ще не реалізовано (О5/О6)');
+  // Только наш кошелёк. Без повторов при таймауте (см. post()): операция могла примениться.
+  async topup(customerId: string, sum: number, comment: string): Promise<void> {
+    await this.post('/api/1/loyalty/syrve/customer/wallet/topup', this.walletBody(customerId, sum, comment));
   }
 
-  topup(): Promise<void> { return this.notImplemented(); }
-  chargeoff(): Promise<void> { return this.notImplemented(); }
+  // Syrve пускает в минус — баланс проверяет вызывающий код до chargeoff.
+  async chargeoff(customerId: string, sum: number, comment: string): Promise<void> {
+    await this.post('/api/1/loyalty/syrve/customer/wallet/chargeoff', this.walletBody(customerId, sum, comment));
+  }
+
+  private walletBody(customerId: string, sum: number, comment: string) {
+    return { organizationId: this.organizationId, customerId, walletId: this.walletId, sum, comment };
+  }
+
+  private notImplemented(): never {
+    throw new Error('RealSyrveClient: ще не реалізовано (О6)');
+  }
+
   transactions(): Promise<SyrveTransactionPage> { return this.notImplemented(); }
 
   private toCustomer(raw: RawCustomer): SyrveCustomer {

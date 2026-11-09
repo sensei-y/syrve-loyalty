@@ -13,6 +13,16 @@ export interface GuestCard {
   balance: number | null; // null — у гостя нет кошелька нашей программы
 }
 
+// Карточка гостя для панели: данные Syrve + привязан ли гость к нашему боту.
+export interface GuestProfile {
+  syrveCustomerId: string;
+  name: string;
+  phone: string;
+  cards: string[];
+  balance: number | null;
+  linkedToBot: boolean;
+}
+
 export type ContactResult =
   | { kind: 'invalidPhone' }
   | { kind: 'needName'; phone: string } // гостя в Syrve нет — спросить имя
@@ -33,6 +43,25 @@ export class GuestsService {
 
   findByTelegramId(telegramId: bigint): Promise<Guest | null> {
     return this.prisma.guest.findUnique({ where: { telegramId } });
+  }
+
+  // Поиск для панели — по всем гостям организации в Syrve (гость мог зарегистрироваться на кассе),
+  // не только по нашей таблице Guest. null — в Syrve такого гостя нет.
+  async getProfile(q: { phone: string } | { id: string }): Promise<GuestProfile | null> {
+    const customer = await this.syrve.findCustomer(q);
+    if (!customer) return null;
+    if (customer.balance === null) {
+      this.logger.warn(`У гостя ${customer.id} немає гаманця SYRVE_WALLET_ID — гість не в програмі`);
+    }
+    const linked = await this.prisma.guest.findUnique({ where: { syrveCustomerId: customer.id } });
+    return {
+      syrveCustomerId: customer.id,
+      name: customer.name,
+      phone: customer.phone,
+      cards: customer.cards.map((c) => c.number),
+      balance: customer.balance,
+      linkedToBot: linked !== null,
+    };
   }
 
   // Шаг после контакта. Гость уже есть в Syrve — регистрируем сразу с его именем
