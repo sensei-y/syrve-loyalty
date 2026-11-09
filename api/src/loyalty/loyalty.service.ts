@@ -69,6 +69,23 @@ export class LoyaltyService {
     return this.serialized(input.syrveCustomerId, () => this.execute(op, input));
   }
 
+  // Вызывается при старте api (main.ts). PENDING от прошлого процесса — его прервал рестарт:
+  // процесс мог упасть и до вызова Syrve, и после применения операции. Повторять нельзя —
+  // переводим в UNKNOWN, админ сверяет в кабинете Syrve. Не из onModuleInit: модуль может
+  // подключить и worker, а его рестарт не должен трогать операции работающего api.
+  async recoverInterrupted(): Promise<number> {
+    const { count } = await this.prisma.operation.updateMany({
+      where: { status: OpStatus.PENDING },
+      data: {
+        status: OpStatus.UNKNOWN,
+        error: 'api перезапустився під час операції — перевірте операцію в кабінеті Syrve',
+        finishedAt: new Date(),
+      },
+    });
+    if (count) this.logger.warn(`Незавершених операцій після рестарту: ${count} → UNKNOWN`);
+    return count;
+  }
+
   async journal(syrveCustomerId: string): Promise<OperationView[]> {
     const rows = await this.prisma.operation.findMany({
       where: { syrveCustomerId },

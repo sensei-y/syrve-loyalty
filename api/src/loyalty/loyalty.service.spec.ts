@@ -40,6 +40,11 @@ function fakePrisma() {
         .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
         .map(withAdmin),
     ),
+    updateMany: jest.fn(async ({ where, data }: { where: { status: OpStatus }; data: Record<string, unknown> }) => {
+      const hit = rows.filter((r) => r.status === where.status);
+      hit.forEach((r) => Object.assign(r, data));
+      return { count: hit.length };
+    }),
   };
   return { rows, prisma: { operation } as unknown as PrismaService };
 }
@@ -184,6 +189,20 @@ describe('LoyaltyService', () => {
 
     expect(op).toMatchObject({ status: OpStatus.FAILED, error: 'Гаманець програми в гостя недоступний' });
     expect(spy.chargeoff).not.toHaveBeenCalled();
+  });
+
+  it('старт api: PENDING від минулого процесу → UNKNOWN, інші статуси не чіпає, Syrve не викликається', async () => {
+    const { service, spy, input, rows } = await setup();
+    await service.run(input()); // SUCCESS
+    rows.push({ ...rows[0], id: 'stale', idempotencyKey: 'k-stale', status: OpStatus.PENDING, finishedAt: null });
+    spy.topup.mockClear();
+    jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+
+    await expect(service.recoverInterrupted()).resolves.toBe(1);
+
+    expect(rows.find((r) => r.id === 'stale')).toMatchObject({ status: OpStatus.UNKNOWN, error: expect.stringContaining('кабінеті Syrve') });
+    expect(rows[0].status).toBe(OpStatus.SUCCESS);
+    expect(spy.topup).not.toHaveBeenCalled();
   });
 
   it('журнал: нові зверху, з адміном, причиною й статусом', async () => {
