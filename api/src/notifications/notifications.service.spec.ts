@@ -419,12 +419,15 @@ describe('NotificationsService: неоднозначні помилки Telegram
     expect(outbox.get(txId)!.status).toBe(NotificationStatus.FAILED);
   });
 
-  it('відповідь Telegram 502 → PENDING і повтор', async () => {
+  // 5xx приходит уже после того, как запрос дошёл до Telegram / шлюза: отсутствие эффекта не доказано.
+  it.each([500, 502, 504])('відповідь Telegram %d → UNKNOWN, без повторів (можливий побічний ефект)', async (code) => {
     const { service, sendMessage, outbox, txId } = await withPending();
-    sendMessage.mockRejectedValueOnce(Object.assign(new Error('Bad Gateway'), { error_code: 502 }));
+    sendMessage.mockRejectedValueOnce(Object.assign(new Error('Server error'), { error_code: code }));
 
-    await expect(service.deliver(txId)).rejects.not.toBeInstanceOf(UnrecoverableError);
-    expect(outbox.get(txId)!.status).toBe(NotificationStatus.PENDING);
+    await expect(service.deliver(txId)).rejects.toBeInstanceOf(UnrecoverableError);
+    expect(outbox.get(txId)!.status).toBe(NotificationStatus.UNKNOWN);
+    await expect(service.deliver(txId)).resolves.toBe('skipped');
+    expect(sendMessage).toHaveBeenCalledTimes(1);
   });
 });
 

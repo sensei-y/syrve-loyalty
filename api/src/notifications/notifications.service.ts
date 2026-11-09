@@ -36,8 +36,8 @@ export const NOTIFY_JOB_OPTIONS = {
 // О6. Источник правды — outbox Notification в Postgres; BullMQ — только «будильник» с ретраями.
 //  poll:   страница транзакций → строки PENDING + сдвиг lastRevision в ОДНОЙ транзакции БД,
 //          затем в очередь ставятся все PENDING (в т.ч. потерянные при очистке Redis).
-//  notify: PENDING → SENDING (захват) → Telegram → SENT. Повтор — только если Telegram явно не принял
-//          (429 / 5xx) или соединение не установилось. Ответа нет (обрыв) → UNKNOWN; SENT не записался →
+//  notify: PENDING → SENDING (захват) → Telegram → SENT. Повтор — только при 429 или если соединение
+//          не установилось. Обрыв без ответа или 5xx → UNKNOWN; SENT не записался →
 //          остаётся SENDING (при старте → UNKNOWN). Одна транзакция = максимум одно сообщение.
 @Injectable()
 export class NotificationsService implements OnApplicationBootstrap, OnModuleDestroy {
@@ -197,12 +197,12 @@ export class NotificationsService implements OnApplicationBootstrap, OnModuleDes
           await this.setStatus(transactionId, NotificationStatus.FAILED, error);
           throw new UnrecoverableError(`Telegram відхилив повідомлення: ${error}`);
         case 'unknown':
-          // Запрос мог дойти: Telegram принял сообщение, а ответ потерялся. Повтор = возможный дубль.
-          await this.setStatus(transactionId, NotificationStatus.UNKNOWN, `Немає відповіді Telegram: ${error}`);
+          // Запрос дошёл, но итога нет (обрыв / 5xx): сообщение могло уйти. Повтор = возможный дубль.
+          await this.setStatus(transactionId, NotificationStatus.UNKNOWN, `Результат невідомий: ${error}`);
           this.logger.warn(`Сповіщення ${transactionId}: результат невідомий (${error}) — не повторюємо`);
           throw new UnrecoverableError(`Невідомо, чи надіслано: ${error}`);
         case 'retry':
-          // Telegram явно не принял (429 / 5xx) или соединение не установилось — повтор безопасен.
+          // Telegram явно не принял (429) или соединение не установилось — повтор безопасен.
           await this.setStatus(transactionId, lastAttempt ? NotificationStatus.FAILED : NotificationStatus.PENDING, error);
           throw e;
       }
@@ -236,13 +236,15 @@ const NOT_CONNECTED = new Set(['ECONNREFUSED', 'ENOTFOUND', 'EAI_AGAIN']);
 // Что значит ошибка sendMessage для гарантии «максимум одно сообщение»:
 //  blocked  — ответ 403: гость заблокировал бота;
 //  rejected — ответ 4xx (кроме 429): Telegram отказал, повтор не поможет;
-//  retry    — ответ 429 / 5xx или соединение не установилось: сообщение точно не принято;
-//  unknown  — ответа нет (grammY HttpError: обрыв, таймаут, сброс) — сообщение могло уйти.
+//  retry    — ответ 429 или соединение не установилось: сообщение точно не принято;
+//  unknown  — ответ 5xx (запрос дошёл до Telegram / шлюза — эффект не исключён) или ответа нет
+//             (grammY HttpError: обрыв, таймаут, сброс) — сообщение могло уйти.
 export function classifySendError(e: unknown): 'blocked' | 'rejected' | 'retry' | 'unknown' {
   const code = (e as { error_code?: unknown }).error_code;
   if (typeof code === 'number') {
     if (code === 403) return 'blocked';
-    if (code === 429 || code >= 500) return 'retry';
+    if (code === 429) return 'retry';
+    if (code >= 500) return 'unknown';
     return 'rejected';
   }
   // HttpError.error → исходная ошибка fetch; системный код может лежать и глубже, в cause.
