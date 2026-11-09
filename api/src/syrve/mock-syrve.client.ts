@@ -1,8 +1,25 @@
-import { SyrveClient } from './syrve-client.interface';
+import { randomUUID } from 'node:crypto';
+import {
+  SyrveClient,
+  SyrveCustomer,
+  SyrveCustomerQuery,
+  SyrveTransactionPage,
+} from './syrve-client.interface';
 
-// Mock для работы без доступа к Syrve. Наполняется по мере этапов,
-// поведение повторяет живой API (в т.ч. списание в минус не блокируется).
+interface MockCustomer {
+  id: string;
+  name: string;
+  phone: string;
+  cards: string[];
+  inProgram: boolean;
+  balance: number;
+}
+
+// Mock для работы без доступа к Syrve: гости в памяти процесса.
+// Поведение повторяет живой API: upsert по телефону перезаписывает имя, повтор addToProgram безопасен.
 export class MockSyrveClient implements SyrveClient {
+  private readonly customers = new Map<string, MockCustomer>();
+
   async checkConnection() {
     return {
       organization: { id: 'mock-org', name: 'Mock organization' },
@@ -10,14 +27,53 @@ export class MockSyrveClient implements SyrveClient {
     };
   }
 
-  private notImplemented(): never {
-    throw new Error('MockSyrveClient: ще не реалізовано');
+  async findCustomer(q: SyrveCustomerQuery): Promise<SyrveCustomer | null> {
+    const found = [...this.customers.values()].find((c) =>
+      'phone' in q ? c.phone === q.phone : 'cardNumber' in q ? c.cards.includes(q.cardNumber) : c.id === q.id,
+    );
+    return found ? toCustomer(found) : null;
   }
 
-  findCustomer() { return this.notImplemented(); }
-  createCustomer() { return this.notImplemented(); }
-  getBalance() { return this.notImplemented(); }
-  topup() { return this.notImplemented(); }
-  chargeoff() { return this.notImplemented(); }
-  transactions() { return this.notImplemented(); }
+  async upsertCustomer(data: { phone: string; name: string }): Promise<{ id: string }> {
+    const existing = [...this.customers.values()].find((c) => c.phone === data.phone);
+    if (existing) {
+      existing.name = data.name;
+      return { id: existing.id };
+    }
+    const customer: MockCustomer = { id: randomUUID(), ...data, cards: [], inProgram: false, balance: 0 };
+    this.customers.set(customer.id, customer);
+    return { id: customer.id };
+  }
+
+  async addToProgram(customerId: string): Promise<void> {
+    this.get(customerId).inProgram = true;
+  }
+
+  async addCard(customerId: string, cardNumber: string): Promise<void> {
+    this.get(customerId).cards.push(cardNumber);
+  }
+
+  private get(customerId: string): MockCustomer {
+    const c = this.customers.get(customerId);
+    if (!c) throw new Error(`MockSyrveClient: гостя ${customerId} немає`);
+    return c;
+  }
+
+  private notImplemented(): never {
+    throw new Error('MockSyrveClient: ще не реалізовано (О5/О6)');
+  }
+
+  topup(): Promise<void> { return this.notImplemented(); }
+  chargeoff(): Promise<void> { return this.notImplemented(); }
+  transactions(): Promise<SyrveTransactionPage> { return this.notImplemented(); }
+}
+
+function toCustomer(c: MockCustomer): SyrveCustomer {
+  return {
+    id: c.id,
+    name: c.name,
+    phone: c.phone,
+    cards: c.cards.map((number) => ({ number, track: number })),
+    balance: c.inProgram ? c.balance : null,
+  };
 }

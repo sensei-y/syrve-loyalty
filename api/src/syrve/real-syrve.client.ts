@@ -1,14 +1,36 @@
 import { AppConfig } from '../config/config.schema';
 import { SyrveApiError } from './syrve-api.error';
-import { SyrveClient, SyrveConnectionInfo } from './syrve-client.interface';
+import {
+  SyrveClient,
+  SyrveConnectionInfo,
+  SyrveCustomer,
+  SyrveCustomerQuery,
+  SyrveTransactionPage,
+} from './syrve-client.interface';
 
 const TOKEN_TTL_MS = 60 * 60 * 1000; // Syrve: токен живёт 1 час
 const TOKEN_REFRESH_BEFORE_MS = 5 * 60 * 1000;
 const REQUEST_TIMEOUT_MS = 15_000;
 
+// errorCode ответа 400 «гостя не найдено» для каждого типа поиска (проверено на живом API).
+const NOT_FOUND_CODE = {
+  phone: 'Validation_IncorrectPhone',
+  cardNumber: 'Card_CanNotFindByNumber',
+  id: 'Customer_CustomerNotFound',
+} as const;
+
 interface RawResponse {
   status: number;
   body: unknown; // null — тело не JSON
+}
+
+// Поля customer/info, которые мы используем (полный ответ — в docs/syrve-api-notes.md).
+interface RawCustomer {
+  id: string;
+  name?: string | null;
+  phone?: string | null;
+  cards?: { number: string; track: string }[] | null;
+  walletBalances?: { id: string; balance: number }[] | null;
 }
 
 // Клиент живого Syrve Cloud API. Сам не логирует: ожидаемые ошибки (например, «гостя не найдено»)
@@ -62,16 +84,67 @@ export class RealSyrveClient implements SyrveClient {
     };
   }
 
-  private notImplemented(): never {
-    throw new Error('RealSyrveClient: ще не реалізовано (етап 2)');
+  async findCustomer(q: SyrveCustomerQuery): Promise<SyrveCustomer | null> {
+    const [type, value] = Object.entries(q)[0] as [keyof typeof NOT_FOUND_CODE, string];
+    try {
+      const raw = await this.post<RawCustomer>('/api/1/loyalty/syrve/customer/info', {
+        organizationId: this.organizationId,
+        type,
+        [type]: value,
+      });
+      return this.toCustomer(raw);
+    } catch (e) {
+      // «Не найдено» — HTTP 400 со своим кодом для каждого типа поиска; остальные 400 — настоящие ошибки.
+      if (e instanceof SyrveApiError && e.httpStatus === 400 && e.errorCode === NOT_FOUND_CODE[type]) return null;
+      throw e;
+    }
   }
 
-  findCustomer() { return this.notImplemented(); }
-  createCustomer() { return this.notImplemented(); }
-  getBalance() { return this.notImplemented(); }
-  topup() { return this.notImplemented(); }
-  chargeoff() { return this.notImplemented(); }
-  transactions() { return this.notImplemented(); }
+  async upsertCustomer(data: { phone: string; name: string }): Promise<{ id: string }> {
+    const path = '/api/1/loyalty/syrve/customer/create_or_update';
+    const { id } = await this.post<{ id?: unknown }>(path, { organizationId: this.organizationId, ...data });
+    if (typeof id !== 'string' || !id) {
+      throw new SyrveApiError(`Syrve ${path}: відповідь без id`, path, 200, 'InvalidResponse', null);
+    }
+    return { id };
+  }
+
+  async addToProgram(customerId: string): Promise<void> {
+    await this.post('/api/1/loyalty/syrve/customer/program/add', {
+      organizationId: this.organizationId,
+      customerId,
+      programId: this.programId,
+    });
+  }
+
+  async addCard(customerId: string, cardNumber: string): Promise<void> {
+    // track = номер: так заведены карты в организации (docs/syrve-api-notes.md).
+    await this.post('/api/1/loyalty/syrve/customer/card/add', {
+      organizationId: this.organizationId,
+      customerId,
+      cardTrack: cardNumber,
+      cardNumber,
+    });
+  }
+
+  private notImplemented(): never {
+    throw new Error('RealSyrveClient: ще не реалізовано (О5/О6)');
+  }
+
+  topup(): Promise<void> { return this.notImplemented(); }
+  chargeoff(): Promise<void> { return this.notImplemented(); }
+  transactions(): Promise<SyrveTransactionPage> { return this.notImplemented(); }
+
+  private toCustomer(raw: RawCustomer): SyrveCustomer {
+    const wallet = (raw.walletBalances ?? []).find((w) => sameId(w.id, this.walletId));
+    return {
+      id: raw.id,
+      name: raw.name ?? '',
+      phone: raw.phone ?? '',
+      cards: (raw.cards ?? []).map((c) => ({ number: c.number, track: c.track })),
+      balance: wallet ? wallet.balance : null,
+    };
+  }
 
   // Единственная точка вызова методов Syrve.
   // Повтор — только после 401 и только один раз. Таймаут и сетевые ошибки не повторяются:
