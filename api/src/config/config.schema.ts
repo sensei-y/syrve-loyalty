@@ -15,6 +15,7 @@ export const configSchema = z.object({
   SYRVE_API_LOGIN: z.string().optional(),
   SYRVE_ORGANIZATION_ID: z.string().optional(),
   SYRVE_PROGRAM_ID: z.string().optional(),
+  SYRVE_WALLET_ID: z.string().optional(),
 
   TELEGRAM_BOT_TOKEN: z.string().optional(),
 });
@@ -31,7 +32,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   }
   const cfg = parsed.data;
   if (cfg.SYRVE_MODE === 'real') {
-    const missing = (['SYRVE_API_LOGIN', 'SYRVE_ORGANIZATION_ID', 'SYRVE_PROGRAM_ID'] as const)
+    const missing = (['SYRVE_API_LOGIN', 'SYRVE_ORGANIZATION_ID', 'SYRVE_PROGRAM_ID', 'SYRVE_WALLET_ID'] as const)
       .filter((k) => !cfg[k]);
     if (missing.length) {
       throw new Error(`SYRVE_MODE=real потребує: ${missing.join(', ')}`);

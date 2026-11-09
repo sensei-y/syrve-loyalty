@@ -1,0 +1,89 @@
+# Syrve Cloud API — результати розвідки (09.11.2026)
+
+Перевірено вручну в Postman на тестовій організації. Ключ і токен тут не зберігаються.
+
+## Загальне
+
+- Базовий URL: `https://api-eu.syrve.live`. Усі методи — `POST` з JSON-тілом.
+- Токен: `POST /api/1/access_token` з `{ "apiLogin": "..." }` → `{ "token": "..." }`, живе 1 годину. Далі заголовок `Authorization: Bearer <token>`.
+- У кожному запиті лояльності потрібен `organizationId`.
+
+## Ідентифікатори тестової організації
+
+| Що | Значення |
+|---|---|
+| Організація «Демо В.С.» | `67018360-fb28-4d49-b4e0-391d83ec6c57` |
+| Програма «Бонусная программа в зале и в доставке» | `0eaa0000-29b3-b8cb-5653-08de79e05361` |
+| Гаманець цієї програми | `0eaa0000-29b3-b8cb-7be7-08de79e05361` |
+
+В організації 4 активні програми (3 бонусні + сертифікати), тому програма й гаманець задаються явно в `.env`. `programId` ≠ `walletId`.
+
+## Методи і реальна поведінка
+
+| Метод | Тіло | Відповідь | Нюанс |
+|---|---|---|---|
+| `/api/1/organizations` | `{}` | `{ organizations: [{ id, name, code }] }` | одна організація |
+| `/api/1/loyalty/syrve/program` | `{ organizationId }` | `{ Programs: [{ id, name, walletId, programType, isActive, ... }] }` | ключ `Programs` з великої літери |
+| `/api/1/loyalty/syrve/customer/info` | `{ organizationId, type: "phone", phone }` / `type: "id", id` / `type: "cardNumber", cardNumber` | повний профіль гостя (нижче) | **гостя не знайдено → HTTP 400** з `errorCode: "Validation_IncorrectPhone"` (див. нижче) |
+| `/api/1/loyalty/syrve/customer/create_or_update` | `{ organizationId, phone, name }` | `{ id }` | **upsert за телефоном**: повторний виклик повертає той самий `id`. Може перезаписати ім'я — тому спочатку `customer/info` |
+| `/api/1/loyalty/syrve/customer/program/add` | `{ organizationId, customerId, programId }` | `{ userWalletId, walletId }` | |
+| `/api/1/loyalty/syrve/customer/card/add` | `{ organizationId, customerId, cardTrack, cardNumber }` | `{}` | |
+| `/api/1/loyalty/syrve/customer/wallet/topup` | `{ organizationId, customerId, walletId, sum, comment }` | `{}` | |
+| `/api/1/loyalty/syrve/customer/wallet/chargeoff` | `{ organizationId, customerId, walletId, sum, comment }` | `{}` | **пускає в мінус**: списання 500 при балансі 0 → баланс −500, відповідь 200 |
+| `/api/1/loyalty/syrve/customer/transactions/by_revision` | `{ organizationId, customerId, revision, pageSize }` | `{ transactions: [...], lastRevision, pageSize }` | див. «Транзакції» |
+
+### «Гостя не знайдено»
+
+```json
+{
+  "code": "Transport_WrongCustomerNumber",
+  "errorCode": "Validation_IncorrectPhone",
+  "message": "There is no user with phone +380990000001",
+  "httpStatusCode": 400
+}
+```
+
+`findCustomer` має повертати `null` лише для цього випадку, решту помилок — прокидати.
+
+### Профіль гостя (`customer/info`, скорочено)
+
+```json
+{
+  "id": "0eaa0000-...-3ed2",
+  "name": "Тест",
+  "phone": "+380990000001",
+  "cards": [{ "id": "...", "track": "100001", "number": "100001", "validToDate": null }],
+  "categories": [{ "id": "...", "name": "Кэшбек 1%", "isDefaultForNewGuests": true }],
+  "walletBalances": [
+    { "id": "0ba20000-...-7994", "name": "Бонусная программа в зале", "type": 1, "balance": 0.0 },
+    { "id": "0eaa0000-...-5361", "name": "Бонусная программа в зале и в доставке", "type": 1, "balance": -400.0 },
+    { "id": "0eaa0000-...-82c1", "name": "Бонусная программа доставка", "type": 1, "balance": 0.0 }
+  ],
+  "whenRegistered": "2026-11-09T09:48:37.274"
+}
+```
+
+- У гостя одразу **кілька гаманців**. Баланс брати строго за `SYRVE_WALLET_ID`, не перший у списку.
+- Новому гостю автоматично призначається категорія «Кэшбек 1%».
+
+### Транзакції (`transactions/by_revision`)
+
+```json
+{
+  "transactions": [
+    { "id": "...-3ed3", "type": 21, "typeName": "SetGuestCategory", "sum": 0.0, "walletId": null,
+      "balanceAfter": null, "comment": "Кэшбек 1%", "revision": 5207794689, "whenCreated": "2026-11-09T08:48:37.285Z" },
+    { "id": "...-9332", "type": 40, "typeName": "WithdrawWalletFromApi", "sum": -500.0,
+      "walletId": "0eaa0000-...-5361", "programId": "0eaa0000-...-5361",
+      "balanceBefore": 0.0, "balanceAfter": -500.0, "comment": "тест списання понад баланс",
+      "revision": 5207802399, "whenCreated": "2026-11-09T08:50:58.833Z" }
+  ],
+  "lastRevision": 5207802399,
+  "pageSize": 50
+}
+```
+
+- Є службові записи (`SetGuestCategory`, `sum: 0`, `walletId: null`). Для сповіщень (О6) брати лише `walletId === SYRVE_WALLET_ID && sum !== 0`.
+- `balanceAfter` є в записі — готове значення для «баланс M».
+- `sum` зі знаком: `+` нарахування, `−` списання.
+- `revision` — велике число (>2^32), у БД зберігати як `BigInt`. Наступний запит — з `revision = lastRevision`.
