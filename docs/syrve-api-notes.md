@@ -87,3 +87,27 @@
 - `balanceAfter` є в записі — готове значення для «баланс M».
 - `sum` зі знаком: `+` нарахування, `−` списання.
 - `revision` — велике число (>2^32), у БД зберігати як `BigInt`. Наступний запит — з `revision = lastRevision`.
+
+## Формати помилок
+
+Перевірено на живому API 09.11.2026. Є два формати, клієнт читає обидва:
+`errorCode ?? error ?? code`, `message ?? errorDescription`, `correlationId`, якщо є.
+
+**Загальний** (токен, організації, програми):
+
+```json
+{ "correlationId": "e5bd1cb5-...", "errorDescription": "Passed organizationId doesn't belong to your api login included organization list." }
+```
+
+| Запит | HTTP | `error` |
+|---|---|---|
+| `access_token` з невірним `apiLogin` | 401 | немає |
+| `loyalty/syrve/program`, чужий `organizationId` | 400 | немає |
+| `loyalty/syrve/program`, `organizationId` не GUID | 400 | немає |
+| `organizations` з чужим id в `organizationIds` | 403 | `ORGANIZATION_DENIED` |
+
+- `error` є не завжди → `errorCode` може бути `null`. Розрізняти ситуації за HTTP-статусом і шляхом, а не лише за кодом.
+- **`access_token` повторює `apiLogin` у тексті**: `"Login <apiLogin> is not authorized."`. Тому клієнт відкидає текст помилки токена й залишає лише статус і `correlationId`.
+
+**Лояльність, «гостя не знайдено»** — свій формат, без `correlationId` (див. вище):
+`{ code, errorCode, message, httpStatusCode }`.
