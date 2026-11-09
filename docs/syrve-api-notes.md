@@ -24,10 +24,10 @@
 |---|---|---|---|
 | `/api/1/organizations` | `{}` | `{ organizations: [{ id, name, code }] }` | одна організація |
 | `/api/1/loyalty/syrve/program` | `{ organizationId }` | `{ Programs: [{ id, name, walletId, programType, isActive, ... }] }` | ключ `Programs` з великої літери |
-| `/api/1/loyalty/syrve/customer/info` | `{ organizationId, type: "phone", phone }` / `type: "id", id` / `type: "cardNumber", cardNumber` | повний профіль гостя (нижче) | **гостя не знайдено → HTTP 400** з `errorCode: "Validation_IncorrectPhone"` (див. нижче) |
+| `/api/1/loyalty/syrve/customer/info` | `{ organizationId, type: "phone", phone }` / `type: "id", id` / `type: "cardNumber", cardNumber` | повний профіль гостя (нижче) | **гостя не знайдено → HTTP 400**, `errorCode` залежить від типу пошуку (див. нижче) |
 | `/api/1/loyalty/syrve/customer/create_or_update` | `{ organizationId, phone, name }` | `{ id }` | **upsert за телефоном**: повторний виклик повертає той самий `id`. Може перезаписати ім'я — тому спочатку `customer/info` |
-| `/api/1/loyalty/syrve/customer/program/add` | `{ organizationId, customerId, programId }` | `{ userWalletId, walletId }` | |
-| `/api/1/loyalty/syrve/customer/card/add` | `{ organizationId, customerId, cardTrack, cardNumber }` | `{}` | |
+| `/api/1/loyalty/syrve/customer/program/add` | `{ organizationId, customerId, programId }` | `{ userWalletId, walletId }` | **повтор безпечний**: для гостя, що вже в програмі, — 200, той самий `walletId`, баланс не змінюється |
+| `/api/1/loyalty/syrve/customer/card/add` | `{ organizationId, customerId, cardTrack, cardNumber }` | `{}` | `cardTrack` = `cardNumber` (так заведені картки в організації) |
 | `/api/1/loyalty/syrve/customer/wallet/topup` | `{ organizationId, customerId, walletId, sum, comment }` | `{}` | |
 | `/api/1/loyalty/syrve/customer/wallet/chargeoff` | `{ organizationId, customerId, walletId, sum, comment }` | `{}` | **пускає в мінус**: списання 500 при балансі 0 → баланс −500, відповідь 200 |
 | `/api/1/loyalty/syrve/customer/transactions/by_revision` | `{ organizationId, customerId, revision, pageSize }` | `{ transactions: [...], lastRevision, pageSize }` | див. «Транзакції» |
@@ -43,7 +43,15 @@
 }
 ```
 
-`findCustomer` має повертати `null` лише для цього випадку, решту помилок — прокидати.
+Для кожного типу пошуку — свій код (перевірено 09.11 на живому API):
+
+| Тип пошуку | `code` | `errorCode` |
+|---|---|---|
+| `phone` | `Transport_WrongCustomerNumber` | `Validation_IncorrectPhone` |
+| `cardNumber` | `Transport_WrongCardNumber` | `Card_CanNotFindByNumber` |
+| `id` | `Transport_WrongCustomerId` | `Customer_CustomerNotFound` |
+
+`findCustomer` повертає `null` лише для коду «не знайдено» **свого** типу пошуку, решту помилок — прокидає.
 
 ### Профіль гостя (`customer/info`, скорочено)
 
