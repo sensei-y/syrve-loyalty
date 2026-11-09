@@ -24,3 +24,41 @@ model Guest {
   lastRevision    BigInt   @default(0) // состояние поллера уведомлений (О6)
   createdAt       DateTime @default(now())
 }
+
+model Admin {
+  id           String      @id @default(uuid())
+  login        String      @unique
+  passwordHash String // scrypt$<salt hex>$<hash hex>
+  operations   Operation[]
+}
+
+enum OpType {
+  TOPUP
+  CHARGEOFF
+}
+
+enum OpStatus {
+  PENDING // создана до вызова Syrve
+  SUCCESS
+  FAILED // Syrve ответил ошибкой или проверка баланса не прошла — бонусы не изменились
+  UNKNOWN // таймаут / сеть: операция могла примениться, сверить в кабинете Syrve
+}
+
+// Журнал ручных операций панели: кто, когда, сколько, почему. Пишется до вызова Syrve (PENDING),
+// уникальный idempotencyKey защищает от двойного клика и повторов запроса.
+model Operation {
+  id              String    @id @default(uuid())
+  idempotencyKey  String    @unique
+  syrveCustomerId String // гость Syrve; может быть не привязан к боту
+  type            OpType
+  amount          Decimal   @db.Decimal(12, 2)
+  reason          String
+  status          OpStatus  @default(PENDING)
+  error           String?
+  adminId         String
+  admin           Admin     @relation(fields: [adminId], references: [id])
+  createdAt       DateTime  @default(now())
+  finishedAt      DateTime?
+
+  @@index([syrveCustomerId, createdAt])
+}

@@ -27,6 +27,12 @@ export const configSchema = z.object({
   SYRVE_WALLET_ID: syrveId,
 
   TELEGRAM_BOT_TOKEN: z.string().optional(),
+
+  // Админ панели создаётся/обновляется из .env при старте api; пароль хранится как scrypt-хэш.
+  ADMIN_LOGIN: z.string().trim().min(3, 'мінімум 3 символи'),
+  ADMIN_PASSWORD: z.string().min(8, 'мінімум 8 символів'),
+  // Подпись JWT в cookie сессии админа.
+  JWT_SECRET: z.string().min(32, 'мінімум 32 символи (згенеруйте: openssl rand -hex 32)'),
 });
 
 export type AppConfig = z.infer<typeof configSchema>;

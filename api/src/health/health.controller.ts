@@ -1,10 +1,13 @@
 import { Controller, Get, Inject, Logger, ServiceUnavailableException } from '@nestjs/common';
 import Redis from 'ioredis';
+import { Public } from '../auth/auth.decorators';
 import { REDIS } from '../common/redis.provider';
 import { PrismaService } from '../prisma/prisma.service';
 import { describeError } from '../syrve/syrve-api.error';
 import { SYRVE_CLIENT, SyrveClient } from '../syrve/syrve-client.interface';
 
+// Открыт без входа: проверки Docker / мониторинга. Наружу — без деталей ошибок.
+@Public()
 @Controller('health')
 export class HealthController {
   private readonly logger = new Logger(HealthController.name);
