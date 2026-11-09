@@ -15,12 +15,12 @@ export const configSchema = z.object({
   NODE_ENV: z.enum(['development', 'production']).default('development'),
   PORT: z.coerce.number().default(3000),
 
-  DATABASE_URL: z.string().url(),
+  DATABASE_URL: z.url(),
   REDIS_HOST: z.string().default('localhost'),
   REDIS_PORT: z.coerce.number().default(6379),
 
   SYRVE_MODE: z.enum(['real', 'mock']).default('mock'),
-  SYRVE_API_URL: z.string().url().default('https://api-eu.syrve.live'),
+  SYRVE_API_URL: z.url().default('https://api-eu.syrve.live'),
   SYRVE_API_LOGIN: z.string().optional(),
   SYRVE_ORGANIZATION_ID: syrveId,
   SYRVE_PROGRAM_ID: syrveId,
