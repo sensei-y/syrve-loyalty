@@ -1,6 +1,7 @@
 import { Logger } from '@nestjs/common';
 import { Guest, NotificationStatus } from '@prisma/client';
 import { Queue, UnrecoverableError } from 'bullmq';
+import { HttpError } from 'grammy';
 import { BotService } from '../bot/bot.service';
 import { AppConfig } from '../config/config.schema';
 import { PrismaService } from '../prisma/prisma.service';
@@ -367,6 +368,63 @@ describe('NotificationsService: надсилання (outbox)', () => {
     sendMessage.mockRejectedValueOnce(tooMany());
     await service.deliver(txId, true).catch(() => undefined);
     expect(outbox.get(txId)).toMatchObject({ status: NotificationStatus.FAILED, attempts: 2 });
+  });
+});
+
+describe('NotificationsService: неоднозначні помилки Telegram', () => {
+  beforeEach(quiet);
+  afterEach(() => jest.restoreAllMocks());
+
+  async function withPending() {
+    const ctx = setup();
+    const guest = await ctx.addGuest(null);
+    await ctx.service.pollGuest(guest);
+    await ctx.syrve.topup(guest.syrveCustomerId, 2);
+    await ctx.service.pollGuest(guest);
+    return { ...ctx, txId: [...ctx.outbox.keys()][0] };
+  }
+  const netError = (code: string) =>
+    new HttpError("Network request for 'sendMessage' failed!", Object.assign(new Error(code), { code }));
+
+  it('побічний ефект стався (Telegram прийняв), потім відповідь втрачено → UNKNOWN, без повторного надсилання', async () => {
+    const { service, sendMessage, outbox, txId } = await withPending();
+    const delivered: unknown[] = [];
+    sendMessage.mockImplementationOnce(async (...args: unknown[]) => {
+      delivered.push(args); // сообщение у гостя
+      throw netError('ECONNRESET'); // а ответ до нас не дошёл
+    });
+
+    await expect(service.deliver(txId)).rejects.toBeInstanceOf(UnrecoverableError);
+    expect(outbox.get(txId)!.status).toBe(NotificationStatus.UNKNOWN);
+
+    await expect(service.deliver(txId)).resolves.toBe('skipped'); // ретрай / новый проход
+    expect(delivered).toHaveLength(1);
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it('зʼєднання не встановлено (ECONNREFUSED) → запит точно не пішов: PENDING і повтор', async () => {
+    const { service, sendMessage, outbox, txId } = await withPending();
+    sendMessage.mockRejectedValueOnce(netError('ECONNREFUSED'));
+
+    const err = await service.deliver(txId).catch((e) => e);
+    expect(err).not.toBeInstanceOf(UnrecoverableError);
+    expect(outbox.get(txId)!.status).toBe(NotificationStatus.PENDING);
+  });
+
+  it('відповідь Telegram 400 (chat not found) → FAILED, без повторів', async () => {
+    const { service, sendMessage, outbox, txId } = await withPending();
+    sendMessage.mockRejectedValueOnce(Object.assign(new Error('Bad Request: chat not found'), { error_code: 400 }));
+
+    await expect(service.deliver(txId)).rejects.toBeInstanceOf(UnrecoverableError);
+    expect(outbox.get(txId)!.status).toBe(NotificationStatus.FAILED);
+  });
+
+  it('відповідь Telegram 502 → PENDING і повтор', async () => {
+    const { service, sendMessage, outbox, txId } = await withPending();
+    sendMessage.mockRejectedValueOnce(Object.assign(new Error('Bad Gateway'), { error_code: 502 }));
+
+    await expect(service.deliver(txId)).rejects.not.toBeInstanceOf(UnrecoverableError);
+    expect(outbox.get(txId)!.status).toBe(NotificationStatus.PENDING);
   });
 });
 
