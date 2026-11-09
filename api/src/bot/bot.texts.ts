@@ -1,3 +1,5 @@
+import { formatBonuses } from '../common/bonus';
+
 // Все тексты бота — на украинском (правило проекта).
 export const T = {
   welcome:
@@ -15,10 +17,6 @@ export const T = {
   // balance = null — у гостя нет кошелька программы: не показываем ложный ноль.
   card: (cardNumber: string, balance: number | null) =>
     `💳 Картка: ${cardNumber}\n` +
-    (balance === null ? '💰 Баланс недоступний' : `💰 Бонусів на рахунку: ${formatBonus(balance)}`) +
+    (balance === null ? '💰 Баланс недоступний' : `💰 Баланс: ${formatBonuses(balance)}`) +
     '\n\nПокажіть QR-код касиру.',
 };
-
-function formatBonus(n: number): string {
-  return Number.isInteger(n) ? String(n) : n.toFixed(2);
-}
