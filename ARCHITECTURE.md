@@ -134,19 +134,24 @@ notify
 
 ## Стек
 
-| Частина | Вибір | Чому | Альтернатива |
+Node.js 22 · TypeScript · NestJS · PostgreSQL + Prisma · Redis + BullMQ · grammY · React + Vite · nginx · Docker Compose · Jest
+
+Більшість — стек вашої вакансії (Node.js, PostgreSQL з міграціями, Docker, Redis/BullMQ, nginx, Telegram-боти).
+Відмінність одна — React + Vite замість Next.js, причина в таблиці.
+
+| Частина | Вибір | Чому саме для цього сервісу | Альтернатива |
 |---|---|---|---|
-| Backend | NestJS + TypeScript | модулі й DI дають структуру з коробки; знайомий інструмент | Express — менше шаблонного коду, але структуру тримати самому |
-| БД / ORM | PostgreSQL + Prisma | схема читається як документація, міграції в Git | Drizzle — новий інструмент у день тестового |
-| Черги | Redis + BullMQ | розклад, ретраї з backoff, `jobId` проти дублів у черзі | `setInterval` — губить стан, не ретраїть |
-| Бот | grammY (+ вбудований `session`) | TypeScript з коробки; плагін `conversations` не знадобився | Telegraf — слабші типи |
+| Backend | NestJS + TypeScript | два процеси (api і worker) ділять ті самі модулі через DI; підміна `SyrveClient` real/mock — один провайдер | Express — структуру й DI довелося б будувати самому |
+| БД / ORM | PostgreSQL + Prisma | вимога ТЗ «зміни бази — лише через міграції»: міграції генеруються зі схеми й лежать у Git; типізовані запити | Drizzle, TypeORM — теж мають міграції, Prisma простіша для читання схеми |
+| Черги | Redis + BullMQ | поллер транзакцій і надсилання сповіщень: розклад, черги та контрольовані ретраї; курсор і outbox зберігаються в PostgreSQL, тому після втрати Redis задачі відновлюються без повторної обробки операцій | `setInterval` — немає спільної черги, керованих ретраїв і координації між процесами |
+| Бот | grammY | TypeScript з коробки, вбудований `session` для кроків реєстрації | Telegraf — слабші типи |
 | QR | `qrcode` | генерується локально — номер картки не йде стороннім сервісам | зовнішній сервіс QR-картинок |
-| Адмінка | React + Vite, без UI-кіту й роутера | внутрішня панель, SSR не потрібен | Next.js — зайва складність |
-| Проксі | nginx | статика + `/api` з одного origin: без CORS, cookie працюють; ліміт входу | окремі порти + CORS |
-| Авторизація | `@nestjs/jwt` у httpOnly cookie, пароль — `crypto.scrypt` | scrypt вбудований у Node — без нативної збірки bcrypt на Alpine; cookie `httpOnly`, `sameSite=lax`, `Secure` за HTTPS | bcrypt, сесії в Redis |
-| Валідація | class-validator (DTO) + zod (`.env`) | рідний шлях Nest; кривий `.env` — падіння на старті з назвою змінної | лише zod |
-| Тести | Jest (ts-jest) | стандарт для Nest; unit на критичну логіку | Vitest |
-| Запуск | Docker Compose | усе однією командою, міграції окремим кроком | ручний запуск |
+| Адмінка | React + Vite | внутрішня панель за логіном: SSR і SEO не потрібні, статика за nginx | Next.js — SSR тут нічого не дає, лише ще один сервер |
+| Проксі | nginx | статика й `/api` з одного origin — без CORS, httpOnly-cookie працюють як є | окремі порти + CORS |
+| Авторизація | `@nestjs/jwt` у httpOnly cookie, пароль — `crypto.scrypt` | scrypt вбудований у Node — без нативної збірки bcrypt на Alpine; cookie недоступна з JS | bcrypt, сесії в Redis |
+| Валідація | class-validator (DTO) + zod (`.env`) | DTO — рідний шлях Nest; кривий `.env` — падіння на старті з назвою змінної | лише zod |
+| Тести | Jest | стандарт для Nest; unit-тести на критичну логіку: гроші, ідемпотентність, сповіщення, токен | Vitest |
+| Запуск | Docker Compose | увесь сервіс однією командою, міграції окремим кроком перед стартом | ручний запуск кожної частини |
 
 ## Особливості Syrve, які вплинули на код
 
