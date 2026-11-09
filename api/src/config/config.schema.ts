@@ -1,5 +1,14 @@
 import { z } from 'zod';
 
+// id Syrve не соответствуют RFC 4122 (биты версии/варианта произвольные), поэтому не z.string().uuid().
+const SYRVE_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// Пустое значение из .env (`SYRVE_PROGRAM_ID=`) = не задано; mock-режим работает без id.
+const syrveId = z.preprocess(
+  (v) => (v === '' ? undefined : v),
+  z.string().regex(SYRVE_ID_RE, 'очікується id формату xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx').optional(),
+);
+
 // Единственное место, где читается process.env.
 // Кривой .env → процесс падает на старте с понятной ошибкой, а не посреди работы.
 export const configSchema = z.object({
@@ -13,9 +22,9 @@ export const configSchema = z.object({
   SYRVE_MODE: z.enum(['real', 'mock']).default('mock'),
   SYRVE_API_URL: z.string().url().default('https://api-eu.syrve.live'),
   SYRVE_API_LOGIN: z.string().optional(),
-  SYRVE_ORGANIZATION_ID: z.string().optional(),
-  SYRVE_PROGRAM_ID: z.string().optional(),
-  SYRVE_WALLET_ID: z.string().optional(),
+  SYRVE_ORGANIZATION_ID: syrveId,
+  SYRVE_PROGRAM_ID: syrveId,
+  SYRVE_WALLET_ID: syrveId,
 
   TELEGRAM_BOT_TOKEN: z.string().optional(),
 });

@@ -11,4 +11,7 @@ async function bootstrap() {
   Logger.log('Worker запущено', 'Bootstrap');
 }
 
-void bootstrap();
+bootstrap().catch((err: Error) => {
+  Logger.error(`Worker не запустився: ${err.message}`, err.stack, 'Bootstrap');
+  process.exit(1);
+});

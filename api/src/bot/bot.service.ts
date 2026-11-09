@@ -22,7 +22,10 @@ export class BotService implements OnModuleDestroy {
     this.bot.command('start', (ctx) => ctx.reply('Бот працює. Реєстрація — на етапі 2.'));
     this.bot.catch((err) => this.logger.error(`Помилка бота: ${err.message}`));
 
-    void this.bot.start({ onStart: (me) => this.logger.log(`Бот @${me.username} запущено`) });
+    // Ошибка старта (неверный токен, нет сети) не должна стать unhandled rejection.
+    this.bot
+      .start({ onStart: (me) => this.logger.log(`Бот @${me.username} запущено`) })
+      .catch((err: Error) => this.logger.error(`Бот зупинився з помилкою: ${err.message}`));
   }
 
   // Нужен другим модулям (уведомления) для отправки сообщений.

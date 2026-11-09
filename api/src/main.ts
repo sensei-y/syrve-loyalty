@@ -16,4 +16,7 @@ async function bootstrap() {
   Logger.log(`API на :${cfg.PORT} (Syrve: ${cfg.SYRVE_MODE})`, 'Bootstrap');
 }
 
-void bootstrap();
+bootstrap().catch((err: Error) => {
+  Logger.error(`API не запустився: ${err.message}`, err.stack, 'Bootstrap');
+  process.exit(1);
+});
