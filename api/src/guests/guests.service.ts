@@ -68,7 +68,9 @@ export class GuestsService {
     const known = await this.findByTelegramId(telegramId);
     if (known) return this.getCard(telegramId) as Promise<GuestCard>;
 
+    const startedAt = Date.now();
     let customer = await this.syrve.findCustomer({ phone });
+    const isNew = !customer;
     if (!customer) {
       if (!name) throw new Error("Для нового гостя потрібне ім'я");
       const { id } = await this.syrve.upsertCustomer({ phone, name });
@@ -94,6 +96,9 @@ export class GuestsService {
       create: { telegramId, phone, name: customer.name, syrveCustomerId: customer.id, cardNumber },
       update: { telegramId, name: customer.name, syrveCustomerId: customer.id, cardNumber },
     });
+    this.logger.log(
+      `Гість ${customer.id} ${isNew ? 'створений' : 'привʼязаний'} у Syrve за ${Date.now() - startedAt} мс`,
+    );
     return this.toCard(customer, cardNumber);
   }
 
