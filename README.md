@@ -2,7 +2,8 @@
 
 Сервіс лояльності поверх Syrve: Telegram-бот для гостя і веб-панель для адміністратора.
 
-> Стан: каркас проєкту (інфраструктура без бізнес-логіки). Функції додаються поетапно — див. `PLAN.md`.
+> Стан: готово О1–О5 (підключення до Syrve, реєстрація в боті, картка й баланс, вхід і пошук в адмінці,
+> нарахування / списання з журналом). Далі — О6 (сповіщення). План — `PLAN.md`. Повний опис і звіт — наприкінці.
 
 ## Швидкий старт
 
@@ -10,17 +11,28 @@
 
 ```bash
 cp .env.example .env
+```
+
+Заповніть у `.env` обовʼязкові значення адмін-панелі — без них api не стартує:
+
+- `ADMIN_PASSWORD` — пароль адміністратора (мінімум 8 символів), логін — `ADMIN_LOGIN` (за замовчуванням `admin`);
+- `JWT_SECRET` — мінімум 32 символи, наприклад `openssl rand -hex 32`.
+
+```bash
 docker compose up --build
 ```
 
 | Що | Адреса |
 |---|---|
-| Адмін-панель | http://localhost:8080 |
+| Адмін-панель (вхід — `ADMIN_LOGIN` / `ADMIN_PASSWORD`) | http://localhost:8080 |
 | API | http://localhost:3000/api |
 | Перевірка API, Postgres, Redis | http://localhost:3000/api/health |
 | Перевірка зв'язку з Syrve | http://localhost:3000/api/health/syrve |
 
 За замовчуванням `SYRVE_MODE=mock` — сервіс піднімається без доступу до Syrve.
+
+`COOKIE_SECURE=false` у `.env.example` — для локального `http://localhost:8080`. За HTTPS приберіть рядок
+або задайте `true`: тоді cookie сесії отримує прапорець `Secure`.
 
 ## Архітектура
 
@@ -45,3 +57,6 @@ npm run dev:api      # API
 npm run dev:worker   # в іншому терміналі
 cd ../admin && npm install && npm run dev
 ```
+
+Якщо на машині встановлено локальний PostgreSQL, він може займати `127.0.0.1:5432` — тоді `localhost:5432`
+веде не в базу з Docker. Зупиніть локальний PostgreSQL або змініть порт у `docker-compose.yml` і `DATABASE_URL`.
