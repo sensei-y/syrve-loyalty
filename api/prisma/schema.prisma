@@ -1,5 +1,5 @@
 // Модели добавляются по этапам (см. PLAN.md → «Данные»).
-// О2: Guest. О4: Admin. О5: Operation. О6: NotifiedTransaction.
+// О2: Guest. О4: Admin. О5: Operation. О6: Notification (outbox).
 // Баланс и транзакции здесь не храним — источник правды Syrve.
 
 generator client {
@@ -63,10 +63,28 @@ model Operation {
   @@index([syrveCustomerId, createdAt])
 }
 
-// Дедуп уведомлений О6, переживает очистку Redis (в compose он без volume).
-// Запись — после успешной отправки в Telegram; перед отправкой — проверка.
-model NotifiedTransaction {
-  syrveTransactionId String   @id
-  guestId            String
-  createdAt          DateTime @default(now())
+enum NotificationStatus {
+  PENDING // найдено поллером, ждёт отправки
+  SENDING // отправка началась: сообщение могло уйти — повторно не шлём
+  SENT
+  FAILED // гость заблокировал бота (403) или удалён — повторять бессмысленно
+  UNKNOWN // процесс прервался во время отправки: дошло ли — неизвестно, не повторяем
+}
+
+// Outbox уведомлений О6 — источник правды, Redis (BullMQ) — только «будильник» с ретраями.
+// Строки пишутся в одной транзакции со сдвигом Guest.lastRevision: очистка Redis уведомления не теряет.
+// Одна транзакция Syrve = одна строка (PK) = максимум одно сообщение.
+model Notification {
+  syrveTransactionId String             @id
+  guestId            String // Telegram берём из Guest при отправке: гость мог перепривязать бота
+  sum                Decimal            @db.Decimal(12, 2)
+  balanceAfter       Decimal?           @db.Decimal(12, 2)
+  status             NotificationStatus @default(PENDING)
+  attempts           Int                @default(0)
+  lastError          String?
+  createdAt          DateTime           @default(now())
+  claimedAt          DateTime? // начало отправки (SENDING): при старте worker старые SENDING → UNKNOWN
+  sentAt             DateTime?
+
+  @@index([status])
 }

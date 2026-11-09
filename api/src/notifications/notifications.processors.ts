@@ -23,6 +23,7 @@ export class NotifyProcessor extends WorkerHost {
   }
 
   process(job: Job<NotifyJob>): Promise<'sent' | 'skipped'> {
-    return this.notifications.deliver(job.data);
+    const lastAttempt = job.attemptsMade + 1 >= (job.opts.attempts ?? 1);
+    return this.notifications.deliver(job.data.transactionId, lastAttempt);
   }
 }
