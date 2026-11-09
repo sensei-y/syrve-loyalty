@@ -413,3 +413,23 @@ describe('RealSyrveClient: транзакції', () => {
     expect(spy).toHaveBeenCalled();
   });
 });
+
+describe('RealSyrveClient: точність revision', () => {
+  afterEach(() => jest.restoreAllMocks());
+  const PATH = '/api/1/loyalty/syrve/customer/transactions/by_revision';
+
+  it('revision більша за 2^53: відповідь розбирається точно, запит шле точне число', async () => {
+    const big = '9007199254740993'; // MAX_SAFE_INTEGER + 2: Number дав би …992
+    const { spy } = mockSyrve({
+      [PATH]: () =>
+        reply(200, `{"transactions":[{"id":"t1","typeName":"X","sum":1,"walletId":null,"revision":${big}}],"lastRevision":${big},"pageSize":50}`),
+    });
+
+    const page = await new RealSyrveClient(cfg).transactions('c', 9007199254740995n);
+
+    expect(page.transactions[0].revision).toBe(BigInt(big));
+    expect(page.lastRevision).toBe(BigInt(big));
+    const body = String(spy.mock.calls.find(([url]) => String(url).endsWith(PATH))![1]!.body);
+    expect(body).toContain('"revision":9007199254740995');
+  });
+});

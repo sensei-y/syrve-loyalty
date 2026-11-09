@@ -29,7 +29,7 @@ export const TRANSACTIONS_PAGE_SIZE = 50;
 interface RawTransactionPage {
   transactions?: {
     id: string;
-    revision: number;
+    revision: bigint; // parseJson отдаёт BigInt без потери точности
     type?: number;
     typeName?: string;
     sum?: number;
@@ -38,7 +38,7 @@ interface RawTransactionPage {
     comment?: string | null;
     whenCreated?: string;
   }[];
-  lastRevision?: number;
+  lastRevision?: bigint;
 }
 
 // Поля customer/info, которые мы используем (полный ответ — в docs/syrve-api-notes.md).
@@ -162,13 +162,13 @@ export class RealSyrveClient implements SyrveClient {
     const page = await this.post<RawTransactionPage>('/api/1/loyalty/syrve/customer/transactions/by_revision', {
       organizationId: this.organizationId,
       customerId,
-      // ~5·10⁹ сейчас: JSON number точен до 2^53, в ответе тоже число.
-      revision: Number(fromRevision),
+      // Точное число без Number(): ревизия может перерасти 2^53.
+      revision: rawJsonNumber(fromRevision),
       pageSize: TRANSACTIONS_PAGE_SIZE,
     });
     const transactions = (page.transactions ?? []).map((t) => ({
       id: t.id,
-      revision: BigInt(t.revision),
+      revision: t.revision,
       type: t.typeName ?? String(t.type ?? ''),
       sum: t.sum ?? 0,
       walletId: t.walletId ?? null,
@@ -178,7 +178,7 @@ export class RealSyrveClient implements SyrveClient {
     }));
     return {
       transactions,
-      lastRevision: BigInt(page.lastRevision ?? fromRevision),
+      lastRevision: page.lastRevision ?? fromRevision,
       hasMore: transactions.length >= TRANSACTIONS_PAGE_SIZE,
     };
   }
@@ -290,13 +290,28 @@ export class RealSyrveClient implements SyrveClient {
   }
 }
 
+// Ревизии Syrve — большие числа (сейчас ~5·10⁹). JSON.parse делает из них double, и после 2^53
+// точность теряется ещё до BigInt. Поэтому revision / lastRevision берём из исходного текста числа
+// (reviver с context.source, Node ≥ 21).
+const BIGINT_KEYS = new Set(['revision', 'lastRevision']);
+
 function parseJson(text: string): unknown {
   if (!text) return {};
   try {
-    return JSON.parse(text);
+    return JSON.parse(text, ((key: string, value: unknown, ctx?: { source?: string }) =>
+      BIGINT_KEYS.has(key) && typeof value === 'number' && ctx?.source ? BigInt(ctx.source) : value) as never);
   } catch {
     return null;
   }
+}
+
+// BigInt в тело запроса точным JSON-числом (JSON.rawJSON, Node ≥ 21).
+const jsonRaw = (JSON as unknown as { rawJSON?: (text: string) => unknown }).rawJSON;
+
+function rawJsonNumber(n: bigint): unknown {
+  if (jsonRaw) return jsonRaw(n.toString());
+  if (n > BigInt(Number.MAX_SAFE_INTEGER)) throw new Error(`Ревізія ${n} більша за 2^53, а JSON.rawJSON недоступний`);
+  return Number(n);
 }
 
 function str(v: unknown): string | null {
