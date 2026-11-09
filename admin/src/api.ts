@@ -41,6 +41,15 @@ export interface GuestProfile {
 export type OpType = 'TOPUP' | 'CHARGEOFF';
 export type OpStatus = 'PENDING' | 'SUCCESS' | 'FAILED' | 'UNKNOWN';
 
+// Д1: изменение баланса нашего кошелька в Syrve (панель, касса, кабинет).
+export interface BalanceChange {
+  id: string;
+  createdAt: string;
+  sum: number;
+  balanceAfter: number | null;
+  comment: string | null;
+}
+
 export interface Operation {
   id: string;
   type: OpType;

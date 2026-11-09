@@ -1,5 +1,5 @@
 import { FormEvent, useState } from 'react';
-import { api, ApiError, GuestProfile, newIdempotencyKey, Operation, OpStatus, OpType } from './api';
+import { api, ApiError, BalanceChange, GuestProfile, newIdempotencyKey, Operation, OpStatus, OpType } from './api';
 
 const STATUS: Record<OpStatus, string> = {
   PENDING: 'Обробляється',
@@ -16,6 +16,7 @@ export function GuestPage({ onUnauthorized }: { onUnauthorized: () => void }) {
   const [phone, setPhone] = useState('');
   const [guest, setGuest] = useState<GuestProfile | null>(null);
   const [journal, setJournal] = useState<Operation[]>([]);
+  const [history, setHistory] = useState<BalanceChange[] | null>(null); // null — не загрузилась
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -28,7 +29,17 @@ export function GuestPage({ onUnauthorized }: { onUnauthorized: () => void }) {
   async function load(path: string) {
     const profile = await api<GuestProfile>(path);
     setGuest(profile);
-    setJournal(await api<Operation[]>(`/guests/${profile.syrveCustomerId}/operations`));
+    const id = profile.syrveCustomerId;
+    const [ops, changes] = await Promise.all([
+      api<Operation[]>(`/guests/${id}/operations`),
+      // История из Syrve не должна ломать карточку: не загрузилась — покажем сообщение в блоке.
+      api<BalanceChange[]>(`/guests/${id}/history`).catch((err) => {
+        if (err instanceof ApiError && err.status === 401) throw err;
+        return null;
+      }),
+    ]);
+    setJournal(ops);
+    setHistory(changes);
   }
 
   async function search(e: FormEvent) {
@@ -37,6 +48,7 @@ export function GuestPage({ onUnauthorized }: { onUnauthorized: () => void }) {
     setError(null);
     setGuest(null);
     setJournal([]);
+    setHistory(null);
     try {
       await load(`/guests?phone=${encodeURIComponent(phone)}`);
     } catch (err) {
@@ -85,7 +97,41 @@ export function GuestPage({ onUnauthorized }: { onUnauthorized: () => void }) {
           />
 
           <section>
-            <h2>Журнал операцій</h2>
+            <h2>Історія в Syrve</h2>
+            <p className="muted">Усі зміни балансу: панель, каса, кабінет Syrve. Останні 20.</p>
+            {history === null ? (
+              <p className="error">Історію не вдалося завантажити з Syrve. Спробуйте пізніше.</p>
+            ) : history.length === 0 ? (
+              <p className="muted">Змін балансу ще не було.</p>
+            ) : (
+              <table>
+                <thead>
+                  <tr>
+                    <th>Коли</th>
+                    <th>Тип</th>
+                    <th>Сума</th>
+                    <th>Баланс після</th>
+                    <th>Коментар</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {history.map((h) => (
+                    <tr key={h.id}>
+                      <td>{h.createdAt ? fmtDate(h.createdAt) : '—'}</td>
+                      <td>{h.sum > 0 ? 'Нарахування' : 'Списання'}</td>
+                      <td className="num">{fmtNum(Math.abs(h.sum))}</td>
+                      <td className="num">{h.balanceAfter === null ? '—' : fmtNum(h.balanceAfter)}</td>
+                      <td>{h.comment || '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </section>
+
+          <section>
+            <h2>Журнал операцій панелі</h2>
+            <p className="muted">Ручні нарахування і списання: хто, коли, чому.</p>
             {journal.length === 0 ? (
               <p className="muted">Операцій ще не було.</p>
             ) : (
