@@ -107,7 +107,8 @@
 
 - Повна сторінка (`n = pageSize`) — можуть бути ще; неповна — кінець.
 - У відповіді є ще `lastTransactionId`.
-- Типи наших операцій: `RefillWalletFromApi` (+), `WithdrawWalletFromApi` (−).
+- Типи наших операцій: `RefillWalletFromApi` (+), `WithdrawWalletFromApi` (−). Top up з кабінету Syrve приходить як
+  `RefillWallet` (перевірено 09.11 у живій перевірці О6) — фільтр за гаманцем і сумою, а не за типом, бере обидва.
 - `revision` розбираємо з тексту числа одразу в `BigInt` (JSON.parse з `context.source`), у запит — `JSON.rawJSON`: після 2^53 `Number` втратив би точність.
 
 ## Формати помилок
