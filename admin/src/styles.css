@@ -33,3 +33,7 @@ table { width: 100%; border-collapse: collapse; background: #fff; font-size: 14p
 th, td { text-align: left; padding: 8px; border-bottom: 1px solid #e3e7eb; vertical-align: top; }
 td.num { text-align: right; white-space: nowrap; }
 section { overflow-x: auto; }
+fieldset.plain { border: 0; padding: 0; margin: 0; min-width: 0; }
+fieldset:disabled input { background: #f0f2f4; }
+.warning { background: #fff8c5; border: 1px solid #d4a72c; border-radius: 6px; padding: 12px; margin-top: 12px; }
+.warning p { margin: 0 0 10px; }

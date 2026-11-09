@@ -78,6 +78,7 @@ export function GuestPage({ onUnauthorized }: { onUnauthorized: () => void }) {
           </section>
 
           <OperationForm
+            key={guest.syrveCustomerId} // другой гость — новая форма: свой ключ, без блокировки предыдущего
             guestId={guest.syrveCustomerId}
             onDone={() => load(`/guests/${guest.syrveCustomerId}`).catch(fail)}
             onError={fail}
@@ -123,6 +124,9 @@ export function GuestPage({ onUnauthorized }: { onUnauthorized: () => void }) {
   );
 }
 
+const PENDING_POLLS = 15;
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
 function OperationForm(props: { guestId: string; onDone: () => void; onError: (err: unknown) => void }) {
   const [type, setType] = useState<OpType>('TOPUP');
   const [amount, setAmount] = useState('');
@@ -132,17 +136,28 @@ function OperationForm(props: { guestId: string; onDone: () => void; onError: (e
   const [result, setResult] = useState<Operation | null>(null);
   const [busy, setBusy] = useState(false);
 
+  // UNKNOWN: операция могла примениться. Ключ и поля замораживаем — повтор вернёт ту же операцию,
+  // новую можно начать только явной кнопкой после сверки в Syrve.
+  const unknown = result?.status === 'UNKNOWN';
+  // PENDING после ожидания: повтор с тем же ключом безопасен, но поля менять нельзя (иначе 409).
+  const pending = result?.status === 'PENDING';
+  const frozen = busy || unknown || pending;
+
   async function submit(e: FormEvent) {
     e.preventDefault();
+    if (unknown) return;
     setBusy(true);
-    setResult(null);
+    const body = { idempotencyKey: key, type, amount: Number(amount.replace(',', '.')), reason };
+    const send = () => api<Operation>(`/guests/${props.guestId}/operations`, { method: 'POST', body });
     try {
-      const op = await api<Operation>(`/guests/${props.guestId}/operations`, {
-        method: 'POST',
-        body: { idempotencyKey: key, type, amount: Number(amount.replace(',', '.')), reason },
-      });
+      // PENDING = тот же ключ ещё выполняется (двойной клик, другая вкладка): ждём итог тем же запросом.
+      let op = await send();
+      for (let i = 0; op.status === 'PENDING' && i < PENDING_POLLS; i++) {
+        await sleep(1000);
+        op = await send();
+      }
       setResult(op);
-      if (op.status !== 'PENDING') setKey(newIdempotencyKey()); // операция завершена — следующая будет новой
+      if (op.status === 'SUCCESS' || op.status === 'FAILED') setKey(newIdempotencyKey());
       if (op.status === 'SUCCESS') {
         setAmount('');
         setReason('');
@@ -155,40 +170,66 @@ function OperationForm(props: { guestId: string; onDone: () => void; onError: (e
     }
   }
 
+  // Явное действие после сверки в кабинете Syrve: новая операция с новым ключом.
+  function startNew() {
+    setKey(newIdempotencyKey());
+    setAmount('');
+    setReason('');
+    setResult(null);
+  }
+
   return (
     <section className="card">
       <h2>Нарахувати / списати</h2>
       <form className="stack" onSubmit={submit}>
-        <div className="row">
-          <label className="radio">
-            <input type="radio" checked={type === 'TOPUP'} onChange={() => setType('TOPUP')} /> Нарахувати
+        <fieldset className="stack plain" disabled={frozen}>
+          <div className="row">
+            <label className="radio">
+              <input type="radio" checked={type === 'TOPUP'} onChange={() => setType('TOPUP')} /> Нарахувати
+            </label>
+            <label className="radio">
+              <input type="radio" checked={type === 'CHARGEOFF'} onChange={() => setType('CHARGEOFF')} /> Списати
+            </label>
+          </div>
+          <label>
+            Сума
+            <input inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="100" required />
           </label>
-          <label className="radio">
-            <input type="radio" checked={type === 'CHARGEOFF'} onChange={() => setType('CHARGEOFF')} /> Списати
+          <label>
+            Причина
+            <input
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              minLength={3}
+              maxLength={200}
+              placeholder="Напр. компенсація за затримку замовлення"
+              required
+            />
           </label>
-        </div>
-        <label>
-          Сума
-          <input inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="100" required />
-        </label>
-        <label>
-          Причина
-          <input
-            value={reason}
-            onChange={(e) => setReason(e.target.value)}
-            minLength={3}
-            maxLength={200}
-            placeholder="Напр. компенсація за затримку замовлення"
-            required
-          />
-        </label>
-        <button disabled={busy}>{busy ? 'Виконується…' : type === 'TOPUP' ? 'Нарахувати' : 'Списати'}</button>
+        </fieldset>
+        {!unknown && (
+          <button disabled={busy}>
+            {busy ? 'Виконується…' : pending ? 'Перевірити статус' : type === 'TOPUP' ? 'Нарахувати' : 'Списати'}
+          </button>
+        )}
       </form>
-      {result && (
+
+      {result && !unknown && (
         <p className={`status ${result.status.toLowerCase()}`}>
-          {STATUS[result.status]}
+          {pending ? 'Операція ще обробляється. Натисніть «Перевірити статус» трохи пізніше.' : STATUS[result.status]}
           {result.error ? `: ${result.error}` : ''}
         </p>
+      )}
+      {unknown && (
+        <div className="warning">
+          <p>
+            <strong>Результат операції невідомий.</strong> {result?.error} Не повторюйте операцію — спершу перевірте
+            баланс і транзакції гостя в кабінеті Syrve.
+          </p>
+          <button type="button" onClick={startNew}>
+            Я перевірив у Syrve — нова операція
+          </button>
+        </div>
       )}
     </section>
   );
