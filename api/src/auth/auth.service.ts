@@ -40,6 +40,9 @@ export class AuthService implements OnModuleInit {
       throw new HttpException('Забагато невдалих спроб. Спробуйте за 15 хвилин.', HttpStatus.TOO_MANY_REQUESTS);
     }
 
+    // Входит только текущий ADMIN_LOGIN из .env. Прежние логины остаются в БД (на них ссылается
+    // журнал операций), но после смены ADMIN_LOGIN войти под ними нельзя.
+    if (login !== this.cfg.ADMIN_LOGIN) return null;
     const admin = await this.prisma.admin.findUnique({ where: { login } });
     // Несуществующий логин: подбирать нечего, scrypt не запускается — счётчик не ведём.
     // Иначе выдуманные логины и поддельный X-Real-IP раздували бы таблицу неудач.

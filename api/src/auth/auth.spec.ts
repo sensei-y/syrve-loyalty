@@ -38,7 +38,7 @@ describe('AuthGuard', () => {
       getClass: () => undefined,
       switchToHttp: () => ({ getRequest: () => req }),
     } as unknown as ExecutionContext;
-    return { guard: new AuthGuard(reflector, jwt), context, req };
+    return { guard: new AuthGuard(reflector, jwt, { ADMIN_LOGIN: 'admin' }), context, req };
   }
 
   it('без cookie → 401', async () => {
@@ -63,6 +63,12 @@ describe('AuthGuard', () => {
     const { guard, context, req } = ctx(`theme=dark; session=${token}`);
     await expect(guard.canActivate(context)).resolves.toBe(true);
     expect(req.admin).toEqual({ id: 'a1', login: 'admin' });
+  });
+
+  it('валідний токен прежнього логіна (до зміни ADMIN_LOGIN) → 401', async () => {
+    const token = await jwt.signAsync({ sub: 'a0', login: 'old-admin' });
+    const { guard, context } = ctx(`session=${token}`);
+    await expect(guard.canActivate(context)).rejects.toBeInstanceOf(UnauthorizedException);
   });
 
   it('@Public() маршрут → без cookie пропускає', async () => {
@@ -124,6 +130,15 @@ describe('AuthService: обмеження спроб входу', () => {
     for (let i = 0; i < 30; i++) await service.login('admin', 'wrong', `10.0.0.${i}`);
 
     await expect(service.login('admin', 'right-password', '10.0.1.1')).rejects.toMatchObject({ status: 429 });
+  });
+
+  it('прежній логін, що лишився в БД, не входить навіть зі своїм паролем', async () => {
+    const { service, verify } = await setup();
+    const prisma = (service as unknown as { prisma: { admin: { findUnique: jest.Mock } } }).prisma;
+    prisma.admin.findUnique.mockResolvedValue({ id: 'a0', login: 'old-admin', passwordHash: await hashPassword('old-password') });
+
+    await expect(service.login('old-admin', 'old-password', '1.1.1.1')).resolves.toBeNull();
+    expect(verify).not.toHaveBeenCalled();
   });
 
   const failuresSize = (service: AuthService) =>
