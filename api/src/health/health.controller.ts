@@ -2,7 +2,7 @@ import { Controller, Get, Inject, Logger, ServiceUnavailableException } from '@n
 import Redis from 'ioredis';
 import { REDIS } from '../common/redis.provider';
 import { PrismaService } from '../prisma/prisma.service';
-import { SyrveApiError } from '../syrve/syrve-api.error';
+import { describeError } from '../syrve/syrve-api.error';
 import { SYRVE_CLIENT, SyrveClient } from '../syrve/syrve-client.interface';
 
 @Controller('health')
@@ -29,13 +29,7 @@ export class HealthController {
     try {
       return { status: 'ok', ...(await this.syrve.checkConnection()) };
     } catch (e) {
-      if (e instanceof SyrveApiError) {
-        this.logger.error(
-          `Syrve недоступний: path=${e.path} httpStatus=${e.httpStatus} errorCode=${e.errorCode} correlationId=${e.correlationId}`,
-        );
-      } else {
-        this.logger.error(`Перевірка Syrve не пройшла: ${(e as Error).message}`);
-      }
+      this.logger.error(`Перевірка Syrve не пройшла: ${describeError(e)}`);
       throw new ServiceUnavailableException({ status: 'error', message: "Немає зв'язку з Syrve" });
     }
   }

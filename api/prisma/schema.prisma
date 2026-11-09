@@ -1,5 +1,6 @@
 // Модели добавляются по этапам (см. PLAN.md → «Данные»).
-// Этап 2: Guest. Этап 4: Admin. Этап 5: Operation.
+// О2: Guest. О4: Admin. О5: Operation. О6: NotifiedTransaction.
+// Баланс и транзакции здесь не храним — источник правды Syrve.
 
 generator client {
   provider      = "prisma-client-js"
@@ -9,4 +10,17 @@ generator client {
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
+}
+
+// Гости, зарегистрированные через бота. В Syrve нет списка «все гости организации»,
+// а чужих гостей там много — список для панели берём отсюда.
+model Guest {
+  id              String   @id @default(uuid())
+  telegramId      BigInt   @unique
+  syrveCustomerId String   @unique
+  phone           String   @unique // +380XXXXXXXXX
+  name            String
+  cardNumber      String
+  lastRevision    BigInt   @default(0) // состояние поллера уведомлений (О6)
+  createdAt       DateTime @default(now())
 }
