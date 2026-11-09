@@ -6,4 +6,4 @@ export const contactKeyboard = () => new Keyboard().requestContact(T.sendContact
 // Подсказка имени — имя из профиля Telegram, можно написать своё.
 export const nameKeyboard = (suggestion: string) => new Keyboard().text(suggestion).resized().oneTime();
 
-export const menuKeyboard = () => new Keyboard().text(T.myCardButton).resized().persistent();
+export const menuKeyboard = () => new Keyboard().text(T.myCardButton).text(T.historyButton).resized().persistent();

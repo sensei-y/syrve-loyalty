@@ -4,6 +4,7 @@ import QRCode from 'qrcode';
 import { APP_CONFIG } from '../config/config.module';
 import { AppConfig } from '../config/config.schema';
 import { GuestCard, GuestsService } from '../guests/guests.service';
+import { BOT_HISTORY_LIMIT, LoyaltyService } from '../loyalty/loyalty.service';
 import { describeError } from '../syrve/syrve-api.error';
 import { contactKeyboard, menuKeyboard, nameKeyboard } from './bot.keyboards';
 import { T } from './bot.texts';
@@ -27,6 +28,7 @@ export class BotService implements OnModuleDestroy {
   constructor(
     @Inject(APP_CONFIG) private readonly cfg: AppConfig,
     private readonly guests: GuestsService,
+    private readonly loyalty: LoyaltyService,
   ) {}
 
   start() {
@@ -41,6 +43,8 @@ export class BotService implements OnModuleDestroy {
     bot.command('start', (ctx) => this.onStart(ctx));
     bot.command('card', (ctx) => this.onCard(ctx));
     bot.hears(T.myCardButton, (ctx) => this.onCard(ctx));
+    bot.command('history', (ctx) => this.onHistory(ctx));
+    bot.hears(T.historyButton, (ctx) => this.onHistory(ctx));
     bot.on('message:contact', (ctx) => this.onContact(ctx));
     bot.on('message:text', (ctx) => this.onText(ctx));
 
@@ -76,6 +80,14 @@ export class BotService implements OnModuleDestroy {
     const card = await this.guests.getCard(BigInt(ctx.from!.id));
     if (!card) return ctx.reply(T.notRegistered);
     await this.sendCard(ctx, card);
+  }
+
+  // Д1: последние изменения баланса из Syrve (любой источник).
+  private async onHistory(ctx: BotContext) {
+    const guest = await this.guests.findByTelegramId(BigInt(ctx.from!.id));
+    if (!guest) return ctx.reply(T.notRegistered);
+    const items = await this.loyalty.history(guest.syrveCustomerId, BOT_HISTORY_LIMIT);
+    await ctx.reply(T.history(items), { reply_markup: menuKeyboard() });
   }
 
   private async onContact(ctx: BotContext) {
