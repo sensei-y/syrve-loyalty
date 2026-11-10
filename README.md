@@ -42,6 +42,14 @@ cp .env.example .env
 Решта змінних має робочі значення за замовчуванням — пояснення в [.env.example](./.env.example).
 Якщо `programId` і `walletId` не збігаються з даними Syrve, `/api/health/syrve` скаже про це в лозі api.
 
+#### Telegram-бот для перевірки
+
+1. Відкрийте [@BotFather](https://t.me/BotFather) → `/newbot` → назва → username, що закінчується на `bot`.
+2. Скопіюйте токен у `.env` як `TELEGRAM_BOT_TOKEN`.
+3. Після `docker compose up` знайдіть свого бота в Telegram і натисніть `/start`.
+
+Один токен — один запущений сервіс: якщо той самий бот уже працює деінде, Telegram віддасть помилку 409.
+
 ### 2. Запуск однією командою
 
 ```bash
@@ -67,6 +75,8 @@ docker compose up --build
 гостя з бота можна знайти в панелі, а нарахування з панелі потрапляє в сповіщення та історію бота.
 
 ### Наскрізний показ без Syrve
+
+> Перемикаєтесь між `real` і `mock` — спочатку `docker compose down -v`: таблиця `Guest` посилається на гостей іншого режиму.
 
 1. У `.env`: `SYRVE_MODE=mock`; `SYRVE_API_LOGIN`, `SYRVE_ORGANIZATION_ID`, `SYRVE_PROGRAM_ID`, `SYRVE_WALLET_ID`
    залишити порожніми. Заповнити `TELEGRAM_BOT_TOKEN`, `ADMIN_PASSWORD`, `JWT_SECRET`.
